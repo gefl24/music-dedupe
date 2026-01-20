@@ -104,15 +104,10 @@ def get_metadata(path):
     except Exception as e:
         pass
     
-    # ✅ 核心修改：读取列表并拼接
     def get_tag_display(key):
-        # 获取所有值，不仅是第一个
         values = tags.get(key, [])
-        # 过滤掉 None 或空字符串
         valid_values = [str(v).strip() for v in values if v]
-        if not valid_values:
-            return ""
-        # 用 " / " 拼接，例如 "周杰伦 / 费玉清"
+        if not valid_values: return ""
         return " / ".join(valid_values)
 
     artist = get_tag_display('artist')
@@ -120,7 +115,6 @@ def get_metadata(path):
     title = get_tag_display('title')
     album = get_tag_display('album')
     
-    # 回退逻辑：如果标题为空，尝试从文件名解析
     if not title:
         base = os.path.splitext(filename)[0]
         if " - " in base:
@@ -158,8 +152,6 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
                 audio = FLAC(path)
             
             if audio is not None:
-                # 注意：这里我们写入的是字符串。如果用户输入 "A / B"，大多数播放器会识别为一个名字叫 "A / B" 的歌手
-                # 如果需要严格的多值标签支持，需要在这里做 split 处理，但为了兼容简单编辑，直接写入即可
                 if artist: audio['artist'] = artist
                 if album_artist: audio['albumartist'] = album_artist
                 if title: audio['title'] = title
@@ -167,7 +159,6 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
                 audio.save()
                 updated_count += 1
                 
-                # 更新内存缓存
                 for f in state.files:
                     if f['path'] == path:
                         if artist: f['artist'] = artist
@@ -179,6 +170,7 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
             print(f"Update tag error {path}: {e}")
     return updated_count
 
+# ✅ 重命名逻辑更新
 def batch_rename_files(file_paths, pattern="{artist} - {title}"):
     renamed_count = 0
     for path in file_paths:
@@ -186,11 +178,28 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
         meta = next((f for f in state.files if f['path'] == path), None)
         if not meta: meta = get_metadata(path)
 
-        # 文件名不接受 / 等特殊字符，替换为 _
-        safe_artist = meta['artist'].replace("/", "_").replace("\\", "_") or "Unknown"
-        safe_album_artist = meta['album_artist'].replace("/", "_").replace("\\", "_") or "Unknown"
-        safe_title = meta['title'].replace("/", "_").replace("\\", "_") or meta['filename']
-        safe_album = meta['album'].replace("/", "_").replace("\\", "_") or "Unknown"
+        # 辅助函数：替换分隔符
+        def format_for_filename(text):
+            # 将 " / " 或 "/" 替换为 " & "
+            return text.replace(" / ", " & ").replace("/", " & ")
+
+        # 辅助函数：文件名安全过滤
+        def sanitize(text):
+            # 替换 Windows/Linux 文件系统禁止的字符
+            return text.replace("\\", "_").replace("/", "_") \
+                       .replace(":", "-").replace("*", "") \
+                       .replace("?", "").replace("\"", "'") \
+                       .replace("<", "(").replace(">", ")") \
+                       .replace("|", "_")
+
+        # 准备数据
+        raw_artist = format_for_filename(meta['artist'])
+        raw_album_artist = format_for_filename(meta['album_artist'])
+        
+        safe_artist = sanitize(raw_artist) or "Unknown"
+        safe_album_artist = sanitize(raw_album_artist) or "Unknown"
+        safe_title = sanitize(meta['title']) or sanitize(meta['filename'])
+        safe_album = sanitize(meta['album']) or "Unknown"
 
         ext = os.path.splitext(path)[1]
         
