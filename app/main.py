@@ -45,7 +45,8 @@ async def get_status():
             "has_key": bool(core.state.api_key),
             "masked_key": (core.state.api_key[:4] + "***" + core.state.api_key[-4:]) if core.state.api_key else "",
             "model_name": core.state.model_name,
-            "proxy_url": core.state.proxy_url
+            "proxy_url": core.state.proxy_url,
+            "music_dir": core.state.music_dir # ✅ 新增：返回根目录路径
         }
     }
 
@@ -58,10 +59,8 @@ async def list_models():
 async def get_all_files():
     return {"files": core.state.files}
 
-# ✅ 新增：获取扫描后的疑似列表
 @app.get("/api/candidates")
 async def get_candidates():
-    # 为了让前端统一格式展示，我们将 candidates (list of lists) 包装成 results 的格式
     formatted = []
     for group in core.state.candidates:
         formatted.append({
