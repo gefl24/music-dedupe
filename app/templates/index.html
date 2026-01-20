@@ -2,34 +2,55 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#4f46e5">
-    <title>音乐管家 & AI 智能去重</title>
+    <meta name="description" content="AI 音乐库管理与去重工具">
+    <title>音乐管家 Pro - AI 智能管理</title>
     
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
+    <link rel="prefetch" href="/api/models">
+
     <script>
         tailwind.config = {
             darkMode: 'class',
             theme: {
                 extend: {
-                    colors: { primary: '#4f46e5', secondary: '#6366f1' },
-                    animation: { 'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite' }
+                    colors: { 
+                        primary: '#4f46e5', 
+                        secondary: '#6366f1',
+                        surface: '#1e293b'
+                    },
+                    animation: { 
+                        'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+                        'shimmer': 'shimmer 2s infinite'
+                    },
+                    keyframes: {
+                        shimmer: {
+                            '0%': { backgroundPosition: '-200% 0' },
+                            '100%': { backgroundPosition: '200% 0' }
+                        }
+                    }
                 }
             }
         }
     </script>
 
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+        /* 全局字体与重置 */
+        body { font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
         [v-cloak] { display: none; }
+        
+        /* 自定义滚动条 */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: transparent; }
         ::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 3px; }
         .dark ::-webkit-scrollbar-thumb { background-color: #475569; }
+        ::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
         
+        /* 骨架屏动画 */
         .skeleton {
             background: linear-gradient(90deg, #e2e8f0 25%, #cbd5e1 50%, #e2e8f0 75%);
             background-size: 200% 100%;
@@ -38,43 +59,58 @@
         .dark .skeleton {
             background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
         }
-        @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         
-        .log-font { font-family: 'JetBrains Mono', 'Courier New', monospace; }
+        /* 表格优化 */
+        .table-sticky-header th { position: sticky; top: 0; z-index: 10; }
         
-        /* 列表过渡动画 */
-        .list-enter-active, .list-leave-active { transition: all 0.3s ease; }
-        .list-enter-from, .list-leave-to { opacity: 0; transform: translateX(10px); }
+        /* 过渡动画 */
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        
+        .slide-up-enter-active, .slide-up-leave-active { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+        .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); opacity: 0; }
+        
+        /* 日志字体 */
+        .font-mono-code { font-family: 'JetBrains Mono', 'Fira Code', monospace; }
     </style>
 </head>
-<body class="bg-gray-50 text-slate-800 dark:bg-slate-950 dark:text-slate-200 h-screen flex flex-col transition-colors duration-300">
+<body class="bg-gray-50 text-slate-800 dark:bg-slate-950 dark:text-slate-200 h-screen flex flex-col transition-colors duration-300 antialiased selection:bg-indigo-500 selection:text-white">
     
     <div id="app" v-cloak class="h-full flex flex-col overflow-hidden">
         
-        <header class="bg-white/90 dark:bg-slate-900/90 backdrop-blur border-b border-gray-200 dark:border-slate-800 z-20 shrink-0">
+        <header class="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-gray-200 dark:border-slate-800 z-30 shrink-0">
             <div class="container mx-auto px-4 h-16 flex justify-between items-center">
                 <div class="flex items-center gap-3">
-                    <div class="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
-                        <i class="fa-solid fa-music text-lg"></i>
+                    <div class="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/20">
+                        <i class="fa-solid fa-music text-sm"></i>
                     </div>
-                    <div class="hidden sm:block">
-                        <h1 class="font-bold text-lg leading-tight">音乐管家</h1>
-                        <p class="text-[10px] text-gray-500 dark:text-gray-400 font-medium tracking-wide">AI POWERED MANAGER</p>
+                    <div>
+                        <h1 class="font-bold text-lg leading-tight tracking-tight">音乐管家</h1>
                     </div>
                 </div>
 
-                <nav class="flex bg-gray-100 dark:bg-slate-800 p-1 rounded-lg">
-                    <button @click="currentTab = 'manager'" :class="tabClass('manager')"><i class="fa-solid fa-folder-open"></i> <span class="hidden sm:inline ml-2">文件管理</span></button>
-                    <button @click="currentTab = 'tasks'" :class="tabClass('tasks')"><i class="fa-solid fa-clock"></i> <span class="hidden sm:inline ml-2">计划任务</span></button>
-                    <button @click="currentTab = 'dedupe'" :class="tabClass('dedupe')"><i class="fa-solid fa-clone"></i> <span class="hidden sm:inline ml-2">AI 去重</span></button>
+                <nav class="hidden md:flex bg-gray-100/50 dark:bg-slate-800/50 p-1 rounded-xl border border-gray-200/50 dark:border-slate-700/50">
+                    <button v-for="tab in tabs" :key="tab.id" @click="currentTab = tab.id"
+                        :class="currentTab === tab.id ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200'"
+                        class="px-4 py-1.5 rounded-lg text-sm font-medium transition-all duration-200 flex items-center gap-2">
+                        <i :class="tab.icon"></i> <span>{{ tab.name }}</span>
+                    </button>
                 </nav>
 
                 <div class="flex items-center gap-3">
-                    <div v-if="isBusy" class="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-900/30 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
-                        <i class="fa-solid fa-circle-notch fa-spin"></i> <span class="hidden sm:inline">处理中</span>
+                    <div v-if="!wsConnected" class="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="WS 断开"></div>
+                    
+                    <div class="hidden sm:flex items-center gap-2 text-xs">
+                        <span v-if="config.has_key" class="text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-900/20 px-2.5 py-1 rounded-full border border-emerald-100 dark:border-emerald-800 font-medium">
+                            {{ config.model_name }}
+                        </span>
+                        <span v-else class="text-rose-500 bg-rose-50 dark:bg-rose-900/20 px-2.5 py-1 rounded-full border border-rose-100 dark:border-rose-800 cursor-pointer animate-pulse" @click="currentTab = 'dedupe'">
+                            未配置 API
+                        </span>
                     </div>
-                    <button @click="toggleTheme" class="w-9 h-9 rounded-full bg-gray-100 dark:bg-slate-800 hover:bg-gray-200 dark:hover:bg-slate-700 flex items-center justify-center transition-colors">
-                        <i :class="isDarkMode ? 'fa-solid fa-sun text-yellow-400' : 'fa-solid fa-moon text-slate-500'"></i>
+
+                    <button @click="toggleTheme" class="w-9 h-9 rounded-full hover:bg-gray-100 dark:hover:bg-slate-800 flex items-center justify-center transition-transform active:scale-95 text-gray-600 dark:text-yellow-400">
+                        <i :class="isDarkMode ? 'fa-solid fa-sun' : 'fa-solid fa-moon'"></i>
                     </button>
                 </div>
             </div>
@@ -82,278 +118,291 @@
 
         <main class="flex-1 overflow-hidden container mx-auto p-4 sm:p-6 relative">
             
-            <transition name="fade" mode="out-in">
-                <div v-if="currentTab === 'manager'" class="h-full flex gap-4">
-                    <div class="w-64 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col overflow-hidden shrink-0 hidden md:flex">
-                        <div class="p-4 border-b border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-800/50 flex justify-between items-center">
-                            <span class="text-xs font-bold text-gray-500 dark:text-slate-400 uppercase">目录导航</span>
-                            <div class="flex gap-1">
-                                <button v-if="!isNavRoot" @click="fetchDirs(parentNavPath)" class="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-500 transition"><i class="fa-solid fa-level-up-alt text-xs"></i></button>
-                                <button @click="fetchDirs(currentNavPath)" class="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-200 dark:hover:bg-slate-700 text-gray-500 transition"><i class="fa-solid fa-rotate-right text-xs"></i></button>
+            <div v-if="isBusy" class="absolute top-0 left-0 right-0 h-1 bg-gray-200 dark:bg-slate-800 z-50">
+                <div class="h-full bg-gradient-to-r from-indigo-500 via-purple-500 to-indigo-500 animate-shimmer" style="background-size: 200% 100%; width: 100%"></div>
+            </div>
+
+            <div v-show="currentTab === 'manager'" class="h-full flex gap-4 animate-fadeIn">
+                <div class="w-64 hidden lg:flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden shrink-0">
+                    <div class="p-4 border-b border-gray-100 dark:border-slate-800 flex justify-between items-center bg-gray-50/50 dark:bg-slate-900/50">
+                        <span class="text-xs font-bold text-gray-500 uppercase tracking-wider">Folders</span>
+                        <button @click="fetchDirs(currentNavPath)" class="text-gray-400 hover:text-indigo-500 transition"><i class="fa-solid fa-rotate-right"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-2 space-y-1">
+                        <div v-if="!isNavRoot" @click="fetchDirs(parentNavPath)" class="px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer text-sm text-gray-600 dark:text-slate-400 flex items-center gap-2">
+                            <i class="fa-solid fa-level-up-alt"></i> 返回上级
+                        </div>
+                        <div @click="selectFolder('')" class="px-3 py-2 rounded-lg cursor-pointer flex justify-between items-center transition-colors"
+                             :class="currentFolder === '' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 font-medium' : 'hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300'">
+                            <span class="flex items-center gap-2 text-sm"><i class="fa-solid fa-layer-group"></i> 全部文件</span>
+                            <span class="text-xs bg-gray-200 dark:bg-slate-700 px-1.5 rounded-md text-gray-500">{{ totalFilesCount }}</span>
+                        </div>
+                        <div v-for="dir in subDirs" :key="dir.path" 
+                             class="group flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                             :class="{'bg-indigo-50 dark:bg-indigo-900/20': filterFolder === dir.path}">
+                            <div @click="fetchDirs(dir.path)" class="flex-1 flex items-center gap-2 text-sm truncate text-gray-700 dark:text-slate-300">
+                                <i class="fa-solid fa-folder text-amber-400"></i> {{ dir.name }}
+                            </div>
+                            <button @click.stop="scanFolder(dir.path)" class="opacity-0 group-hover:opacity-100 p-1 hover:text-indigo-500 transition-opacity" title="扫描此文件夹">
+                                <i class="fa-solid fa-magnifying-glass text-xs"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="flex-1 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden min-w-0">
+                    <div class="p-3 border-b border-gray-100 dark:border-slate-800 flex gap-3 items-center">
+                        <div class="relative flex-1 group">
+                            <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-indigo-500 transition-colors"></i>
+                            <input v-model="searchInput" @input="debouncedSearch" placeholder="搜索文件名、艺术家..." 
+                                   class="w-full bg-gray-50 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20 transition-all">
+                        </div>
+                        <button @click="refreshFiles" class="p-2.5 rounded-xl bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-500 transition">
+                            <i class="fa-solid fa-rotate-right" :class="{'animate-spin': isListLoading}"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto relative">
+                        <div v-if="isListLoading" class="p-4 space-y-3">
+                            <div v-for="i in 10" :key="i" class="flex items-center gap-4 animate-pulse">
+                                <div class="w-5 h-5 rounded bg-gray-200 dark:bg-slate-700 skeleton"></div>
+                                <div class="w-1/3 h-4 rounded bg-gray-200 dark:bg-slate-700 skeleton"></div>
+                                <div class="w-1/4 h-4 rounded bg-gray-200 dark:bg-slate-700 skeleton"></div>
                             </div>
                         </div>
-                        <div class="flex-1 overflow-y-auto p-2 space-y-1">
-                            <div @click="selectFolder('')" class="cursor-pointer px-3 py-2 rounded-xl flex items-center justify-between transition-all" :class="currentFolder === '' ? 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 font-medium' : 'hover:bg-gray-50 dark:hover:bg-slate-800 text-gray-600 dark:text-slate-400'">
-                                <span class="flex items-center gap-2 text-sm"><i class="fa-solid fa-layer-group"></i> 全部文件</span>
-                                <span class="text-[10px] bg-gray-200 dark:bg-slate-700 px-1.5 rounded-full">{{ allFiles.length }}</span>
+
+                        <div v-else-if="files.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                            <div class="w-16 h-16 bg-gray-50 dark:bg-slate-800 rounded-full flex items-center justify-center mb-3">
+                                <i class="fa-solid fa-music text-2xl opacity-30"></i>
                             </div>
-                            <div v-for="dir in subDirs" :key="dir.path" class="group flex items-center justify-between px-3 py-2 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer transition-colors" :class="{'bg-indigo-50 dark:bg-indigo-900/20': filterFolder === dir.path}">
-                                <div @click="fetchDirs(dir.path)" class="flex-1 flex items-center gap-2 text-sm text-gray-700 dark:text-slate-300 truncate">
-                                    <i class="fa-solid fa-folder text-amber-400"></i> <span class="truncate">{{ dir.name }}</span>
+                            <p class="text-sm">暂无数据</p>
+                        </div>
+
+                        <table v-else class="w-full text-sm text-left border-collapse">
+                            <thead class="bg-gray-50/80 dark:bg-slate-800/80 backdrop-blur sticky top-0 z-10 text-xs font-bold text-gray-500 dark:text-slate-400 uppercase tracking-wider">
+                                <tr>
+                                    <th class="p-3 w-10 text-center"><input type="checkbox" @change="toggleSelectAll" :checked="isAllSelected" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+                                    <th class="p-3 w-16 text-center">操作</th>
+                                    <th class="p-3">文件名</th>
+                                    <th class="p-3 hidden sm:table-cell">标题</th>
+                                    <th class="p-3 hidden md:table-cell">艺术家</th>
+                                    <th class="p-3 hidden lg:table-cell">专辑艺术家</th>
+                                    <th class="p-3 hidden xl:table-cell">专辑</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
+                                <tr v-for="file in files" :key="file.path" class="group hover:bg-indigo-50/30 dark:hover:bg-slate-800/50 transition-colors">
+                                    <td class="p-3 text-center">
+                                        <input type="checkbox" :value="file.path" v-model="selection" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
+                                    </td>
+                                    <td class="p-3 flex justify-center gap-2">
+                                        <button @click="fixMeta(file)" class="w-7 h-7 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 hover:bg-indigo-600 hover:text-white transition" title="AI 修复">
+                                            <i class="fa-solid fa-wand-magic-sparkles text-xs" :class="{'animate-spin': processingFiles[file.path]}"></i>
+                                        </button>
+                                    </td>
+                                    <td class="p-3 font-medium text-slate-700 dark:text-slate-200 truncate max-w-[200px]" :title="file.filename">{{ file.filename }}</td>
+                                    <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden sm:table-cell">{{ file.title || '-' }}</td>
+                                    <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden md:table-cell">{{ file.artist || '-' }}</td>
+                                    <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden lg:table-cell">{{ file.album_artist || '-' }}</td>
+                                    <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden xl:table-cell">{{ file.album || '-' }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+
+                    <div class="p-3 border-t border-gray-100 dark:border-slate-800 bg-gray-50/50 dark:bg-slate-900 flex justify-between items-center text-xs text-gray-500 shrink-0">
+                        <span>显示 {{ files.length }} / {{ totalFilesCount }} 项</span>
+                        <div class="flex gap-2">
+                            <button @click="changePage(-1)" :disabled="page <= 1" class="px-2 py-1 rounded border dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50"><i class="fa-solid fa-chevron-left"></i></button>
+                            <span class="px-2 py-1">{{ page }} / {{ totalPages }}</span>
+                            <button @click="changePage(1)" :disabled="page >= totalPages" class="px-2 py-1 rounded border dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800 disabled:opacity-50"><i class="fa-solid fa-chevron-right"></i></button>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="w-72 hidden xl:flex flex-col gap-4 shrink-0">
+                    <div class="bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 p-5 shadow-sm h-full">
+                        <h3 class="font-bold text-slate-800 dark:text-slate-200 mb-4 flex items-center gap-2 pb-2 border-b border-gray-100 dark:border-slate-800">
+                            <i class="fa-solid fa-toolbox text-indigo-500"></i> 批量工具箱
+                        </h3>
+                        
+                        <div class="space-y-6">
+                            <div class="space-y-3">
+                                <label class="text-xs font-bold text-gray-400 uppercase">统一标签</label>
+                                <input v-model="bulkEdit.artist" placeholder="艺术家 (Artist)" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none">
+                                <input v-model="bulkEdit.album_artist" placeholder="专辑艺术家 (Album Artist)" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none">
+                                <input v-model="bulkEdit.album" placeholder="专辑 (Album)" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm focus:ring-2 focus:ring-indigo-500/50 outline-none">
+                                <button @click="applyBulkEdit" :disabled="selection.length === 0" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-medium transition disabled:opacity-50 shadow-sm">
+                                    应用修改 ({{ selection.length }})
+                                </button>
+                            </div>
+
+                            <div class="space-y-3 pt-4 border-t border-gray-100 dark:border-slate-800">
+                                <label class="text-xs font-bold text-gray-400 uppercase">批量重命名</label>
+                                <input v-model="renamePattern" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm font-mono text-xs focus:ring-2 focus:ring-indigo-500/50 outline-none">
+                                <div class="flex gap-2 flex-wrap text-[10px]">
+                                    <span v-for="tag in ['{artist}', '{title}', '{album}']" @click="renamePattern += tag" class="px-2 py-1 bg-gray-100 dark:bg-slate-700 rounded cursor-pointer hover:bg-indigo-50 dark:hover:bg-slate-600">{{ tag }}</span>
                                 </div>
-                                <button @click.stop="scanFolder(dir.path)" class="w-6 h-6 flex items-center justify-center rounded text-gray-400 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 opacity-0 group-hover:opacity-100 transition-all" title="扫描此文件夹">
-                                    <i class="fa-solid fa-magnifying-glass text-xs" :class="{'fa-spin': isScanningPath === dir.path}"></i>
+                                <button @click="applyRename" :disabled="selection.length === 0" class="w-full bg-slate-800 dark:bg-slate-700 hover:bg-slate-700 text-white py-2 rounded-lg text-sm font-medium transition disabled:opacity-50">
+                                    重命名 ({{ selection.length }})
                                 </button>
                             </div>
                         </div>
                     </div>
-
-                    <div class="flex-1 bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col overflow-hidden min-w-0">
-                        <div class="p-3 border-b border-gray-100 dark:border-slate-800 flex gap-3 items-center">
-                            <div class="relative flex-1">
-                                <i class="fa-solid fa-search absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-xs"></i>
-                                <input v-model="searchInput" @input="debouncedSearch" placeholder="搜索文件名、标题、艺术家..." class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg py-2 pl-9 pr-4 text-sm focus:ring-2 focus:ring-indigo-500 outline-none transition">
-                            </div>
-                            <select v-model.number="pageSize" @change="currentPage = 1" class="bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg py-2 px-3 text-sm focus:ring-2 focus:ring-indigo-500 outline-none"><option :value="50">50条</option><option :value="100">100条</option><option :value="500">500条</option></select>
-                            <button @click="refreshFiles" class="w-9 h-9 flex items-center justify-center rounded-lg bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 hover:bg-gray-100 transition text-gray-500"><i class="fa-solid fa-rotate"></i></button>
-                        </div>
-                        <div class="flex-1 overflow-y-auto relative">
-                            <div v-if="isBusy && allFiles.length === 0" class="p-4 space-y-4">
-                                <div v-for="i in 10" :key="i" class="flex gap-4 items-center"><div class="w-5 h-5 rounded skeleton"></div><div class="w-1/3 h-4 rounded skeleton"></div><div class="w-1/4 h-4 rounded skeleton"></div></div>
-                            </div>
-                            <div v-else-if="allFiles.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
-                                <i class="fa-solid fa-inbox text-4xl mb-3 opacity-30"></i><p>暂无数据，请选择文件夹扫描</p>
-                            </div>
-                            <table v-else class="w-full text-sm text-left border-collapse">
-                                <thead class="bg-gray-50 dark:bg-slate-800/50 text-gray-500 dark:text-slate-400 sticky top-0 z-10 backdrop-blur-sm">
-                                    <tr>
-                                        <th class="p-3 w-10 text-center"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
-                                        <th class="p-3 font-medium w-20 text-center">操作</th>
-                                        <th class="p-3 font-medium">文件名</th>
-                                        <th class="p-3 font-medium hidden sm:table-cell">标题</th>
-                                        <th class="p-3 font-medium hidden md:table-cell">艺术家</th>
-                                        <th class="p-3 font-medium hidden lg:table-cell">专辑艺术家</th>
-                                        <th class="p-3 font-medium hidden xl:table-cell">专辑</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
-                                    <tr v-for="file in paginatedFiles" :key="file.path" class="group hover:bg-indigo-50/30 dark:hover:bg-slate-800/50 transition">
-                                        <td class="p-3 text-center"><input type="checkbox" :value="file.path" v-model="managerSelection" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></td>
-                                        <td class="p-3 flex justify-center gap-2">
-                                            <button @click="fixSingleAI(file)" class="w-7 h-7 flex items-center justify-center rounded-lg bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-600 hover:text-white transition"><i class="fa-solid fa-wand-magic-sparkles text-xs" :class="{'fa-spin': loadingFiles[file.path]}"></i></button>
-                                            <button @click="deleteOne(file)" class="w-7 h-7 flex items-center justify-center rounded-lg bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-600 hover:text-white transition"><i class="fa-solid fa-trash-can text-xs"></i></button>
-                                        </td>
-                                        <td class="p-3 font-medium text-slate-700 dark:text-slate-300 truncate max-w-[200px]" :title="file.filename">{{ file.filename }}</td>
-                                        <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden sm:table-cell">{{ file.title }}</td>
-                                        <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden md:table-cell">{{ file.artist }}</td>
-                                        <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden lg:table-cell">{{ file.album_artist }}</td>
-                                        <td class="p-3 text-slate-500 dark:text-slate-400 truncate max-w-[150px] hidden xl:table-cell">{{ file.album }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="p-2 border-t border-gray-100 dark:border-slate-800 bg-gray-50 dark:bg-slate-900 text-xs text-gray-500 flex justify-between items-center shrink-0">
-                            <div>显示 {{ paginatedFiles.length }} / {{ filteredFiles.length }} (缓存 {{ allFiles.length }}) <span v-if="managerSelection.length > 0" class="ml-2 text-indigo-600 font-bold bg-indigo-50 px-2 py-0.5 rounded">已选 {{ managerSelection.length }}</span></div>
-                            <div class="flex gap-2 items-center" v-if="totalPages > 1"><button @click="currentPage--" :disabled="currentPage === 1" class="w-6 h-6 flex items-center justify-center bg-white border rounded hover:bg-gray-100 disabled:opacity-50"><i class="fa-solid fa-chevron-left"></i></button><span class="min-w-[3rem] text-center font-mono">{{ currentPage }} / {{ totalPages }}</span><button @click="currentPage++" :disabled="currentPage === totalPages" class="w-6 h-6 flex items-center justify-center bg-white border rounded hover:bg-gray-100 disabled:opacity-50"><i class="fa-solid fa-chevron-right"></i></button></div>
-                        </div>
-                    </div>
-
-                    <div class="w-72 flex flex-col gap-4 shrink-0 hidden xl:flex">
-                        <div class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 p-5 h-full overflow-y-auto">
-                            <h3 class="font-bold text-gray-800 dark:text-slate-200 mb-4 flex items-center gap-2 text-sm border-b border-gray-100 dark:border-slate-800 pb-2"><i class="fa-solid fa-toolbox text-indigo-500"></i> 批量工具箱</h3>
-                            <div class="space-y-4">
-                                <div class="space-y-2">
-                                    <label class="text-xs font-bold text-gray-400 uppercase">统一标签</label>
-                                    <input v-model="metaEdit.artist" placeholder="艺术家 (Artist)" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm focus:border-indigo-500 outline-none">
-                                    <input v-model="metaEdit.album_artist" placeholder="专辑艺术家 (Album Artist)" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm focus:border-indigo-500 outline-none">
-                                    <input v-model="metaEdit.album" placeholder="专辑 (Album)" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm focus:border-indigo-500 outline-none">
-                                    <button @click="applyMetadata" :disabled="managerSelection.length === 0" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-xs font-bold transition disabled:opacity-50">应用修改 ({{ managerSelection.length }})</button>
-                                </div>
-                                <div class="space-y-2 pt-4 border-t border-gray-100 dark:border-slate-800">
-                                    <label class="text-xs font-bold text-gray-400 uppercase">批量重命名</label>
-                                    <input v-model="renamePattern" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2 text-sm font-mono text-xs focus:border-indigo-500 outline-none">
-                                    <div class="flex gap-1.5 flex-wrap">
-                                        <span v-for="tag in ['{artist}', '{title}', '{album}']" :key="tag" @click="renamePattern += tag" class="px-2 py-1 bg-gray-100 dark:bg-slate-800 rounded text-[10px] cursor-pointer hover:bg-gray-200 dark:hover:bg-slate-700">{{tag}}</span>
-                                    </div>
-                                    <button @click="applyRename" :disabled="managerSelection.length === 0" class="w-full bg-slate-700 hover:bg-slate-800 dark:bg-slate-600 text-white py-2 rounded-lg text-xs font-bold transition disabled:opacity-50">开始重命名</button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <transition name="fade">
-                        <div v-if="managerSelection.length > 0" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-white dark:bg-slate-800 border border-red-100 dark:border-red-900 shadow-2xl rounded-full px-6 py-3 flex items-center gap-6 z-50">
-                            <div class="flex items-center gap-3">
-                                <span class="bg-red-100 dark:bg-red-900/50 text-red-600 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs">{{ managerSelection.length }}</span>
-                                <span class="text-sm font-medium text-gray-700 dark:text-gray-200">项已选中</span>
-                            </div>
-                            <div class="h-6 w-px bg-gray-200 dark:bg-slate-700"></div>
-                            <div class="flex gap-2">
-                                <button @click="managerSelection = []" class="px-3 py-1.5 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-xs text-gray-500">取消</button>
-                                <button @click="deleteManagerSelection" class="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-full text-xs font-bold shadow-lg shadow-red-600/30 flex items-center gap-2"><i class="fa-solid fa-trash-can"></i> 确认删除</button>
-                            </div>
-                        </div>
-                    </transition>
                 </div>
-            </transition>
 
-            <transition name="fade" mode="out-in">
-                <div v-if="currentTab === 'tasks'" class="h-full flex gap-6">
-                    <div class="flex-1 overflow-y-auto pr-2 pb-10">
-                        <div class="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-slate-800 dark:to-slate-800 border border-indigo-100 dark:border-slate-700 rounded-2xl p-6 mb-6">
-                            <h2 class="font-bold text-indigo-900 dark:text-indigo-300 mb-4 flex items-center gap-2"><i class="fa-solid fa-crosshairs"></i> 任务作用域</h2>
-                            <div class="relative max-w-2xl">
-                                <input type="text" v-model="taskTargetFolder" class="w-full pl-4 pr-20 py-3 rounded-xl border border-indigo-200 dark:border-slate-600 dark:bg-slate-900 font-mono text-sm focus:ring-2 focus:ring-indigo-500 outline-none" readonly>
-                                <button @click="showFolderSelector = !showFolderSelector" class="absolute right-1.5 top-1.5 bottom-1.5 bg-indigo-100 dark:bg-slate-700 text-indigo-700 dark:text-indigo-300 px-4 rounded-lg text-xs font-bold hover:bg-indigo-200 transition">更改目录</button>
-                                <div v-if="showFolderSelector" class="absolute top-full mt-2 w-full bg-white dark:bg-slate-800 rounded-xl shadow-xl border border-gray-100 dark:border-slate-600 z-20 max-h-60 overflow-y-auto">
-                                    <div @click="selectTaskFolder(config.music_dir)" class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer border-b dark:border-slate-700 text-sm font-bold text-indigo-600">/ (根目录)</div>
-                                    <div v-for="dir in folderSelectorList" :key="dir.path" @click="selectTaskFolder(dir.path)" class="px-4 py-3 hover:bg-gray-50 dark:hover:bg-slate-700 cursor-pointer text-sm flex items-center text-gray-700 dark:text-slate-300"><i class="fa-regular fa-folder mr-3 text-yellow-500"></i> {{ dir.name }}</div>
-                                </div>
-                            </div>
-                        </div>
+                <transition name="slide-up">
+                    <div v-if="selection.length > 0" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-4 bg-white dark:bg-slate-800 px-6 py-3 rounded-full shadow-2xl border border-gray-200 dark:border-slate-700">
+                        <span class="text-sm font-bold text-slate-700 dark:text-slate-200">已选 {{ selection.length }} 项</span>
+                        <div class="h-4 w-px bg-gray-300 dark:bg-slate-600"></div>
+                        <button @click="selection = []" class="text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">取消</button>
+                        <button @click="deleteSelected" class="bg-red-500 hover:bg-red-600 text-white px-4 py-1.5 rounded-full text-sm font-bold shadow-sm transition flex items-center gap-2">
+                            <i class="fa-solid fa-trash-can"></i> 删除
+                        </button>
+                    </div>
+                </transition>
+            </div>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-5">
-                            <div v-for="(conf, taskId) in taskConfig" :key="taskId" class="bg-white dark:bg-slate-800 rounded-2xl p-6 border border-gray-100 dark:border-slate-700 hover:shadow-lg transition-all relative group overflow-hidden">
-                                <div class="absolute top-0 right-0 w-24 h-24 bg-gray-50 dark:bg-slate-700 rounded-bl-[100px] -mr-12 -mt-12 transition-colors group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/20"></div>
-                                <div class="relative z-10">
-                                    <div class="flex justify-between items-start mb-6">
-                                        <div class="flex items-center gap-4">
-                                            <div class="w-12 h-12 rounded-2xl flex items-center justify-center text-xl shadow-sm" :class="getTaskColor(taskId)">
-                                                <i class="fa-solid" :class="getTaskIcon(taskId)"></i>
-                                            </div>
-                                            <div>
-                                                <h3 class="font-bold text-lg text-gray-800 dark:text-slate-100">{{ getTaskName(taskId) }}</h3>
-                                                <p class="text-xs text-gray-500 dark:text-slate-400">{{ getTaskDesc(taskId) }}</p>
-                                            </div>
-                                        </div>
-                                        <label class="relative inline-flex items-center cursor-pointer"><input type="checkbox" v-model="conf.enabled" class="sr-only peer"><div class="w-11 h-6 bg-gray-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div></label>
-                                    </div>
-                                    <div class="bg-gray-50 dark:bg-slate-900/50 p-4 rounded-xl mb-4 border border-dashed border-gray-200 dark:border-slate-700">
-                                        <div class="flex items-center gap-3">
-                                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">Cron</span>
-                                            <input v-model="conf.cron" class="bg-transparent font-mono text-sm text-gray-700 dark:text-slate-300 w-full outline-none focus:text-indigo-600">
-                                        </div>
-                                        <div v-if="taskId==='clean_short'" class="flex items-center gap-3 mt-2 pt-2 border-t border-gray-200 dark:border-slate-700">
-                                            <span class="text-xs font-bold text-gray-400 uppercase tracking-wider">阈值</span>
-                                            <input type="number" v-model.number="conf.min_duration" class="bg-transparent w-12 text-center text-sm font-bold border-b border-gray-300 focus:border-indigo-500 outline-none"><span class="text-xs text-gray-500">秒</span>
-                                        </div>
-                                    </div>
-                                    <div class="flex justify-between items-center">
-                                        <div class="text-xs text-gray-400">上次: {{ conf.last_run || '从未' }}</div>
-                                        <button @click="runTask(taskId)" class="px-4 py-2 rounded-lg border border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 text-xs font-bold hover:bg-gray-50 dark:hover:bg-slate-700 transition flex items-center gap-2"><i class="fa-solid fa-play"></i> 手动执行</button>
-                                    </div>
-                                </div>
-                            </div>
+            <div v-if="currentTab === 'tasks'" class="h-full flex flex-col md:flex-row gap-6 animate-fadeIn">
+                <div class="flex-1 overflow-y-auto pr-2">
+                    <div class="bg-gradient-to-r from-indigo-50 to-purple-50 dark:from-slate-800 dark:to-slate-800 border border-indigo-100 dark:border-slate-700 rounded-2xl p-5 mb-6">
+                        <h2 class="font-bold text-indigo-900 dark:text-indigo-300 mb-3 flex items-center gap-2"><i class="fa-solid fa-crosshairs"></i> 任务作用域</h2>
+                        <div class="flex gap-2">
+                            <input v-model="config.task_target_path" readonly class="flex-1 bg-white/50 dark:bg-slate-900/50 border border-indigo-200 dark:border-slate-600 rounded-xl px-4 py-2 text-sm font-mono outline-none">
+                            <button @click="fetchDirs('')" class="bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 px-4 rounded-xl text-sm font-bold shadow-sm hover:shadow transition">更改</button>
                         </div>
-                        <div class="mt-8 flex justify-end"><button @click="saveTasksConfig" class="bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold shadow-lg hover:bg-indigo-700 transition"><i class="fa-solid fa-save mr-2"></i> 保存设置</button></div>
                     </div>
 
-                    <div class="w-80 bg-slate-900 rounded-2xl shadow-xl flex flex-col overflow-hidden shrink-0 border border-slate-800">
-                        <div class="p-4 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
-                            <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider"><i class="fa-solid fa-terminal mr-2"></i> Console Output</span>
-                            <div class="flex gap-2">
-                                <i @click="fetchLogs" class="fa-solid fa-sync text-slate-500 cursor-pointer hover:text-white transition" title="刷新"></i>
-                            </div>
-                        </div>
-                        <div ref="logContainer" class="flex-1 overflow-y-auto p-4 font-mono text-[11px] leading-relaxed space-y-1 bg-[#0f172a] log-font scroll-smooth">
-                            <div v-for="(log, i) in taskLogs" :key="i" class="text-slate-300 border-l-2 border-slate-700 pl-3 py-0.5 hover:bg-slate-800/50 transition break-all">
-                                <span class="text-slate-500 mr-2">[{{ log.substring(1, 20) }}]</span>
-                                <span :class="getLogClass(log)">{{ log.substring(22) }}</span>
-                            </div>
-                            <div v-if="taskLogs.length === 0" class="text-center mt-10 text-slate-600">_ 暂无日志数据 _</div>
-                        </div>
-                    </div>
-                </div>
-            </transition>
-
-            <transition name="fade" mode="out-in">
-                <div v-if="currentTab === 'dedupe'" class="h-full overflow-y-auto pr-2">
-                    <div class="max-w-5xl mx-auto">
-                        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <div class="grid grid-cols-1 xl:grid-cols-2 gap-5 pb-6">
+                        <div v-for="(task, key) in tasks" :key="key" class="bg-white dark:bg-slate-900 rounded-2xl p-5 border border-gray-200 dark:border-slate-800 hover:shadow-lg transition-all relative overflow-hidden group">
+                            <div class="absolute top-0 right-0 w-24 h-24 bg-gray-50 dark:bg-slate-800 rounded-bl-full -mr-8 -mt-8 transition-colors group-hover:bg-indigo-50 dark:group-hover:bg-indigo-900/10"></div>
                             
-                            <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700">
-                                <h2 class="font-bold text-gray-800 dark:text-slate-200 mb-6 flex items-center gap-2"><i class="fa-solid fa-sliders text-indigo-500"></i> 系统参数配置</h2>
-                                <div class="space-y-5">
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-400 uppercase mb-2">Gemini API Key</label>
-                                        <div class="relative">
-                                            <i class="fa-solid fa-key absolute left-3 top-3 text-gray-400 text-xs"></i>
-                                            <input type="password" v-model="form.apiKey" placeholder="AIzaSy..." class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-xl p-2.5 pl-9 text-sm outline-none focus:border-indigo-500 transition">
+                            <div class="relative z-10">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 rounded-xl flex items-center justify-center text-lg" :class="taskColor(key)">
+                                            <i :class="taskIcon(key)"></i>
+                                        </div>
+                                        <div>
+                                            <h3 class="font-bold text-slate-800 dark:text-slate-100">{{ taskName(key) }}</h3>
+                                            <p class="text-xs text-gray-500 dark:text-gray-400">上次: {{ task.last_run || '从未运行' }}</p>
                                         </div>
                                     </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-400 uppercase mb-2">AI 模型</label>
-                                        <div class="flex gap-2">
-                                            <div class="relative flex-1">
-                                                <i class="fa-solid fa-microchip absolute left-3 top-3 text-gray-400 text-xs"></i>
-                                                <input list="models" v-model="form.modelName" placeholder="gemini-1.5-flash" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-xl p-2.5 pl-9 text-sm outline-none focus:border-indigo-500 transition">
-                                                <datalist id="models"><option v-for="m in availableModels" :value="m">{{m}}</option></datalist>
-                                            </div>
-                                            <button @click="fetchModels" class="px-3 rounded-xl bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 text-gray-600 dark:text-slate-300 transition" :disabled="isFetchingModels">
-                                                <i class="fa-solid fa-sync" :class="{'fa-spin': isFetchingModels}"></i>
-                                            </button>
-                                        </div>
-                                    </div>
-                                    <div>
-                                        <label class="block text-xs font-bold text-gray-400 uppercase mb-2">HTTP 代理</label>
-                                        <div class="relative">
-                                            <i class="fa-solid fa-network-wired absolute left-3 top-3 text-gray-400 text-xs"></i>
-                                            <input type="text" v-model="form.proxyUrl" placeholder="http://127.0.0.1:7890" class="w-full bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-600 rounded-xl p-2.5 pl-9 text-sm outline-none focus:border-indigo-500 transition">
-                                        </div>
-                                    </div>
-                                    <button @click="saveConfig" class="w-full bg-indigo-600 text-white py-3 rounded-xl font-bold hover:bg-indigo-700 transition shadow-lg shadow-indigo-500/20">保存配置</button>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="task.enabled" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-gray-200 dark:bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:bg-indigo-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all"></div>
+                                    </label>
                                 </div>
-                            </div>
 
-                            <div class="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 flex flex-col">
-                                <h2 class="font-bold text-gray-800 dark:text-slate-200 mb-6 flex items-center gap-2"><i class="fa-solid fa-fingerprint text-purple-500"></i> 去重操作台</h2>
-                                <div class="bg-gray-50 dark:bg-slate-900 rounded-xl p-5 mb-6 border border-gray-100 dark:border-slate-700 flex-1">
-                                    <div class="flex justify-between items-center mb-4">
-                                        <span class="text-xs font-bold text-gray-400 uppercase">当前状态</span>
-                                        <span class="text-sm font-bold text-indigo-600 dark:text-indigo-400 uppercase">{{ status.status }}</span>
-                                    </div>
-                                    <div class="h-2 w-full bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden mb-2">
-                                        <div class="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-500" :style="{ width: progressPercent + '%' }"></div>
-                                    </div>
-                                    <div class="flex justify-between text-xs text-gray-500 dark:text-slate-500 mb-4"><span>进度</span><span>{{ status.progress }} / {{ status.total }}</span></div>
-                                    <p class="text-xs text-gray-600 dark:text-slate-400 h-10 overflow-hidden leading-relaxed">{{ status.message }}</p>
+                                <div class="bg-gray-50 dark:bg-slate-800/50 p-3 rounded-xl mb-4 border border-dashed border-gray-200 dark:border-slate-700 flex items-center gap-3">
+                                    <span class="text-xs font-bold text-gray-400 uppercase">Cron</span>
+                                    <input v-model="task.cron" class="bg-transparent font-mono text-sm text-slate-700 dark:text-slate-300 w-full outline-none focus:text-indigo-500">
+                                    <input v-if="key === 'clean_short'" v-model.number="task.min_duration" type="number" class="w-12 bg-white dark:bg-slate-700 rounded border border-gray-200 dark:border-slate-600 text-center text-xs py-1" title="秒">
                                 </div>
-                                <div class="grid grid-cols-2 gap-4">
-                                    <button @click="startScanAll" :disabled="isBusy" class="py-3 rounded-xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 font-bold hover:bg-blue-100 disabled:opacity-50">1. 全量扫描</button>
-                                    <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="py-3 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 shadow-lg shadow-purple-500/20 disabled:opacity-50">2. AI 分析</button>
+
+                                <button @click="runTask(key)" class="w-full py-2 rounded-lg border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs font-bold text-slate-600 dark:text-slate-300 transition flex items-center justify-center gap-2">
+                                    <i class="fa-solid fa-play"></i> 立即执行
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex justify-end pb-10">
+                        <button @click="saveTasks" class="bg-indigo-600 hover:bg-indigo-700 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-indigo-500/20 transition">保存计划设置</button>
+                    </div>
+                </div>
+
+                <div class="w-full md:w-80 bg-slate-900 rounded-2xl shadow-xl flex flex-col overflow-hidden shrink-0 border border-slate-800 h-96 md:h-auto">
+                    <div class="p-3 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
+                        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                            <i class="fa-solid fa-terminal"></i> 运行日志
+                        </span>
+                        <div class="flex gap-2">
+                            <button @click="logs = []" class="text-slate-600 hover:text-red-400 transition" title="清空"><i class="fa-solid fa-trash-can text-xs"></i></button>
+                            <button @click="fetchLogs" class="text-slate-500 hover:text-white transition"><i class="fa-solid fa-sync text-xs"></i></button>
+                        </div>
+                    </div>
+                    <div ref="logBox" class="flex-1 overflow-y-auto p-3 font-mono-code text-[11px] leading-relaxed space-y-1 bg-[#0f172a]">
+                        <div v-for="(log, i) in logs" :key="i" class="text-slate-300 border-l-2 border-slate-800 pl-2 hover:bg-slate-800/50 transition break-all">
+                            <span class="text-slate-600 mr-2">{{ log.time }}</span>
+                            <span :class="logColor(log.msg)">{{ log.msg }}</span>
+                        </div>
+                        <div v-if="logs.length === 0" class="text-center mt-20 text-slate-700">_ 暂无日志 _</div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="currentTab === 'dedupe'" class="h-full overflow-y-auto animate-fadeIn pr-2">
+                <div class="max-w-5xl mx-auto space-y-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800">
+                            <h2 class="font-bold text-slate-800 dark:text-slate-200 mb-5 flex items-center gap-2"><i class="fa-solid fa-sliders text-indigo-500"></i> 系统配置</h2>
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="text-xs font-bold text-gray-400 uppercase">Gemini API Key</label>
+                                    <input v-model="form.apiKey" type="password" placeholder="AIza..." class="w-full mt-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2.5 text-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none">
                                 </div>
+                                <div>
+                                    <label class="text-xs font-bold text-gray-400 uppercase">模型选择</label>
+                                    <div class="flex gap-2 mt-1">
+                                        <input list="models" v-model="form.modelName" placeholder="gemini-1.5-flash" class="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2.5 text-sm outline-none focus:border-indigo-500">
+                                        <datalist id="models"><option v-for="m in models" :value="m">{{m}}</option></datalist>
+                                        <button @click="fetchModels" class="px-3 rounded-lg bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 dark:hover:bg-slate-600 transition text-gray-600 dark:text-slate-300" :disabled="loadingModels">
+                                            <i class="fa-solid fa-sync" :class="{'animate-spin': loadingModels}"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="text-xs font-bold text-gray-400 uppercase">HTTP 代理</label>
+                                    <input v-model="form.proxyUrl" placeholder="http://127.0.0.1:7890" class="w-full mt-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg p-2.5 text-sm focus:border-indigo-500 outline-none">
+                                </div>
+                                <button @click="saveConfig" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2.5 rounded-lg text-sm font-bold shadow-lg shadow-indigo-500/20 transition">保存配置</button>
                             </div>
                         </div>
 
-                        <div v-if="results.length > 0" class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-700 p-6">
-                            <div class="flex justify-between items-center mb-6">
-                                <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded-full bg-yellow-100 dark:bg-yellow-900/30 flex items-center justify-center text-yellow-600"><i class="fa-solid fa-copy"></i></div>
-                                    <div><h3 class="font-bold text-gray-800 dark:text-slate-100">疑似重复组</h3><p class="text-xs text-gray-500">共发现 {{ results.length }} 组</p></div>
+                        <div class="bg-white dark:bg-slate-900 p-6 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 flex flex-col">
+                            <h2 class="font-bold text-slate-800 dark:text-slate-200 mb-5 flex items-center gap-2"><i class="fa-solid fa-fingerprint text-purple-500"></i> 扫描控制</h2>
+                            <div class="bg-gray-50 dark:bg-slate-800/50 rounded-xl p-4 mb-auto border border-dashed border-gray-200 dark:border-slate-700">
+                                <div class="flex justify-between mb-2">
+                                    <span class="text-xs font-bold text-gray-400 uppercase">状态</span>
+                                    <span class="text-sm font-bold text-indigo-500 uppercase">{{ status.status }}</span>
                                 </div>
-                                <button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-xl font-bold shadow-lg">删除选中 ({{ selectedFiles.length }})</button>
+                                <div class="h-2 w-full bg-gray-200 dark:bg-slate-700 rounded-full overflow-hidden mb-3">
+                                    <div class="h-full bg-indigo-500 transition-all duration-500" :style="{ width: progressPercent + '%' }"></div>
+                                </div>
+                                <p class="text-xs text-gray-500 h-8 overflow-hidden">{{ status.message }}</p>
                             </div>
-                            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                                <div v-for="(group, idx) in results" :key="idx" class="border border-gray-200 dark:border-slate-700 rounded-xl p-4 hover:shadow-md transition bg-gray-50/50 dark:bg-slate-900/50">
-                                    <div class="text-[10px] uppercase font-bold text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-1 rounded mb-3 inline-block border border-yellow-200 dark:border-yellow-800/30">{{ group.reason }}</div>
-                                    <div class="space-y-2">
-                                        <div v-for="file in group.files" :key="file.path" @click="toggleSelect(file.path)" class="p-3 bg-white dark:bg-slate-800 border-2 rounded-lg cursor-pointer transition relative overflow-hidden" :class="isSelected(file.path) ? 'border-red-500' : 'border-transparent hover:border-indigo-200 dark:hover:border-slate-600'">
-                                            <div class="flex items-start gap-3">
-                                                <i class="fa-solid fa-file-audio text-xl mt-1" :class="isSelected(file.path) ? 'text-red-500' : 'text-gray-300'"></i>
-                                                <div class="flex-1 min-w-0">
-                                                    <div class="font-bold text-sm text-gray-800 dark:text-slate-200 truncate">{{ file.filename }}</div>
-                                                    <div class="flex gap-2 mt-1 text-[10px] text-gray-500 dark:text-slate-400"><span class="bg-gray-100 dark:bg-slate-700 px-1.5 rounded">{{ file.size_mb }}MB</span><span class="bg-gray-100 dark:bg-slate-700 px-1.5 rounded">{{ file.bitrate }}k</span></div>
-                                                </div>
-                                            </div>
-                                            <div v-if="isSelected(file.path)" class="absolute top-0 right-0 bg-red-500 text-white w-6 h-6 flex items-center justify-center rounded-bl-lg"><i class="fa-solid fa-check text-xs"></i></div>
+                            <div class="grid grid-cols-2 gap-3 mt-4">
+                                <button @click="startScanAll" :disabled="isBusy" class="py-2.5 rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-sm font-bold hover:bg-blue-100 transition disabled:opacity-50">全量扫描</button>
+                                <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="py-2.5 rounded-lg bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold shadow-lg shadow-purple-500/20 transition disabled:opacity-50">AI 分析</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-if="results.length > 0" class="bg-white dark:bg-slate-900 rounded-2xl shadow-sm border border-gray-200 dark:border-slate-800 p-6 animate-slide-up">
+                        <div class="flex justify-between items-center mb-6">
+                            <h3 class="font-bold text-lg text-slate-800 dark:text-slate-100">疑似重复 ({{ results.length }} 组)</h3>
+                            <button v-if="selection.length > 0" @click="deleteSelected" class="bg-red-500 hover:bg-red-600 text-white px-5 py-2 rounded-lg font-bold text-sm shadow-lg transition">删除选中</button>
+                        </div>
+                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                            <div v-for="(group, idx) in results" :key="idx" class="border border-gray-100 dark:border-slate-800 rounded-xl p-4 bg-gray-50/30 dark:bg-slate-800/30 hover:border-indigo-200 dark:hover:border-slate-600 transition">
+                                <div class="text-[10px] font-bold text-yellow-600 bg-yellow-50 dark:bg-yellow-900/20 px-2 py-1 rounded inline-block mb-3 border border-yellow-100 dark:border-yellow-900/30">{{ group.reason }}</div>
+                                <div class="space-y-2">
+                                    <div v-for="file in group.files" :key="file.path" @click="toggleSelect(file.path)" 
+                                         class="flex items-center gap-3 p-3 bg-white dark:bg-slate-900 border rounded-lg cursor-pointer transition relative overflow-hidden"
+                                         :class="selection.includes(file.path) ? 'border-red-500 ring-1 ring-red-500' : 'border-gray-200 dark:border-slate-700 hover:border-indigo-300'">
+                                        <i class="fa-solid fa-file-audio text-xl text-gray-300" :class="{'text-red-500': selection.includes(file.path)}"></i>
+                                        <div class="flex-1 min-w-0">
+                                            <div class="font-bold text-sm text-slate-700 dark:text-slate-200 truncate">{{ file.filename }}</div>
+                                            <div class="flex gap-2 text-[10px] text-gray-500 mt-0.5"><span class="bg-gray-100 dark:bg-slate-800 px-1.5 rounded">{{ file.size_mb }}MB</span><span class="bg-gray-100 dark:bg-slate-800 px-1.5 rounded">{{ file.bitrate }}k</span></div>
                                         </div>
+                                        <div v-if="selection.includes(file.path)" class="absolute top-0 right-0 w-6 h-6 bg-red-500 text-white flex items-center justify-center rounded-bl-lg"><i class="fa-solid fa-check text-xs"></i></div>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
-            </transition>
+            </div>
 
         </main>
     </div>
@@ -363,325 +412,345 @@
 
         createApp({
             setup() {
-                // --- State ---
+                // --- 基础状态 ---
                 const currentTab = ref('manager');
                 const isDarkMode = ref(false);
-                const isBusy = computed(() => status.value.status === 'scanning' || status.value.status === 'analyzing');
-                const isFetchingModels = ref(false); // 模型刷新状态
-                const logContainer = ref(null); // 日志容器引用
+                const isBusy = ref(false);
+                const wsConnected = ref(false);
                 
-                // Config & Status
-                const form = ref({ apiKey: '', modelName: 'gemini-1.5-flash-002', proxyUrl: '' });
-                const config = ref({ has_key: false, model_name: '', music_dir: '' });
-                const status = ref({ status: 'idle', message: 'Ready', progress: 0, total: 100, candidates_count: 0 });
-                const availableModels = ref([]);
+                // --- 配置与状态 ---
+                const form = ref({ apiKey: '', modelName: 'gemini-1.5-flash', proxyUrl: '' });
+                const config = ref({});
+                const status = ref({ status: 'idle', message: 'Ready', progress: 0, total: 0 });
+                const models = ref([]);
+                const loadingModels = ref(false);
 
-                // Manager Data
-                const allFiles = ref([]);
-                const subDirs = ref([]);
+                // --- 文件管理 ---
+                const files = ref([]);
+                const totalFilesCount = ref(0); // 数据库总数
+                const page = ref(1);
+                const pageSize = ref(50);
+                const totalPages = ref(1);
+                const searchInput = ref('');
+                const fileSearch = ref('');
                 const currentNavPath = ref('');
+                const subDirs = ref([]);
                 const isNavRoot = ref(true);
                 const parentNavPath = ref('');
-                
-                // Manager UI State
-                const searchInput = ref('');
-                const fileSearch = ref(''); // Debounced
-                const managerSelection = ref([]);
-                const loadingFiles = ref({});
-                const isScanningPath = ref(null);
-                const currentPage = ref(1);
-                const pageSize = ref(50);
-                const metaEdit = ref({ artist: '', album_artist: '', title: '', album: '' });
+                const currentFolder = ref('');
+                const filterFolder = ref('');
+                const isListLoading = ref(false);
+                const selection = ref([]); // 通用选中
+                const processingFiles = ref({});
+                const isScanningPath = ref('');
+                const metaEdit = ref({ artist:'', album_artist:'', title:'', album:'' });
                 const renamePattern = ref('{artist} - {title}');
 
-                // Task Data
-                const taskConfig = ref({
+                // --- 计划任务 ---
+                const tasks = ref({
                     dedupe_quality: { enabled: false, cron: "0 2 * * *", last_run: null },
                     clean_short: { enabled: false, cron: "0 3 * * *", min_duration: 60, last_run: null },
                     extract_meta: { enabled: false, cron: "0 4 * * *", last_run: null },
                     clean_junk: { enabled: false, cron: "0 5 * * *", last_run: null }
                 });
-                const taskTargetFolder = ref('');
-                const taskLogs = ref([]);
-                const showFolderSelector = ref(false);
-                const folderSelectorList = ref([]);
+                const logs = ref([]);
+                const logBox = ref(null);
 
-                // Dedupe Data
+                // --- AI 去重结果 ---
                 const results = ref([]);
-                const selectedFiles = ref([]);
 
-                // --- Methods ---
+                // === 方法 ===
 
-                // Theme
+                // 1. 基础 UI
                 const toggleTheme = () => {
                     isDarkMode.value = !isDarkMode.value;
-                    if (isDarkMode.value) document.documentElement.classList.add('dark');
-                    else document.documentElement.classList.remove('dark');
+                    document.documentElement.classList.toggle('dark', isDarkMode.value);
                     localStorage.setItem('theme', isDarkMode.value ? 'dark' : 'light');
                 };
-
-                const tabClass = (name) => {
-                    const active = currentTab.value === name;
-                    return `px-4 py-2 rounded-md font-medium transition flex items-center text-sm ${active ? 'bg-white dark:bg-slate-600 text-indigo-600 dark:text-indigo-300 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700'}`;
-                };
-
-                const getLogClass = (log) => {
-                    if (log.includes('删除')) return 'text-yellow-400 font-bold';
-                    if (log.includes('完成')) return 'text-emerald-400 font-bold';
-                    if (log.includes('失败') || log.includes('Error')) return 'text-red-400 font-bold';
-                    return '';
-                };
-
-                // Debounce Search
-                let timeout;
-                const debouncedSearch = () => {
-                    clearTimeout(timeout);
-                    timeout = setTimeout(() => { fileSearch.value = searchInput.value; currentPage.value = 1; }, 300);
-                };
-
-                // Helpers
-                const getTaskName = (id) => ({dedupe_quality:'音质去重', clean_short:'短音频清理', extract_meta:'元数据提取', clean_junk:'垃圾清理'}[id] || id);
-                const getTaskDesc = (id) => ({dedupe_quality:'保留高音质版本', clean_short:'删除过短音频', extract_meta:'生成NFO/封面', clean_junk:'清理无用文件'}[id]);
-                const getTaskIcon = (id) => ({dedupe_quality:'fa-volume-high', clean_short:'fa-scissors', extract_meta:'fa-file-invoice', clean_junk:'fa-broom'}[id]);
-                const getTaskColor = (id) => ({dedupe_quality:'bg-blue-100 text-blue-600', clean_short:'bg-yellow-100 text-yellow-600', extract_meta:'bg-green-100 text-green-600', clean_junk:'bg-red-100 text-red-600'}[id]);
-
-                // --- API Interactions ---
                 
-                const fetchModels = async () => {
-                    isFetchingModels.value = true;
-                    try { 
-                        const res = await fetch('/api/models'); 
-                        const data = await res.json(); 
-                        if(data.models) {
-                            availableModels.value = data.models;
-                            alert(`已刷新模型列表，共 ${data.models.length} 个模型`);
-                        }
-                    } catch(e) { alert("刷新失败"); }
-                    finally { isFetchingModels.value = false; }
-                };
+                const tabClass = (id) => `px-4 py-1.5 rounded-lg text-sm font-medium transition flex items-center gap-2 ${currentTab.value === id ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200'}`;
 
-                const saveConfig = async () => {
-                    try {
-                        const res = await fetch('/api/config', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ api_key: form.value.apiKey, model_name: form.value.modelName, proxy_url: form.value.proxyUrl })
-                        });
-                        if(res.ok) { alert("配置已保存"); pollStatus(); fetchModels(); }
-                    } catch(e) { alert("Error saving config"); }
-                };
-
-                const fetchDirs = async (path = null) => {
-                    try {
-                        const url = path ? `/api/dirs?path=${encodeURIComponent(path)}` : '/api/dirs';
-                        const res = await fetch(url);
-                        const data = await res.json();
-                        subDirs.value = data.subdirs;
-                        currentNavPath.value = data.current_path;
-                        isNavRoot.value = data.is_root;
-                        parentNavPath.value = data.parent_path;
-                    } catch(e) {}
-                };
-
-                const scanFolder = async (path) => {
-                    isScanningPath.value = path;
-                    await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: path }) });
-                };
-
-                const refreshFiles = async () => {
-                    const res = await fetch('/api/files');
-                    const data = await res.json();
-                    allFiles.value = data.files;
-                };
-
-                const startScanAll = async () => {
-                    results.value = [];
-                    await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: null }) });
-                };
-
-                const startAnalyze = async () => {
-                    await fetch('/api/analyze', { method: 'POST' });
-                };
-
-                const deleteOne = async (file) => {
-                    if(!confirm(`删除 ${file.filename}?`)) return;
-                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: [file.path] }) });
-                    allFiles.value = allFiles.value.filter(f => f.path !== file.path);
-                };
-
-                const deleteManagerSelection = async () => {
-                    if(!confirm(`确认删除 ${managerSelection.value.length} 个文件？`)) return;
-                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: managerSelection.value }) });
-                    managerSelection.value = [];
-                    refreshFiles();
-                };
-
-                const applyMetadata = async () => {
-                    if(!confirm('确认修改标签？')) return;
-                    const body = { paths: managerSelection.value, ...metaEdit.value };
-                    Object.keys(body).forEach(k => { if(body[k] === '') body[k] = null });
-                    await fetch('/api/update_meta', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-                    refreshFiles();
-                    managerSelection.value = [];
-                };
-
-                const applyRename = async () => {
-                    if(!confirm('确认重命名？')) return;
-                    await fetch('/api/rename', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: managerSelection.value, pattern: renamePattern.value }) });
-                    refreshFiles();
-                    managerSelection.value = [];
-                };
-
-                const fixSingleAI = async (file) => {
-                    loadingFiles.value[file.path] = true;
-                    try {
-                        const res = await fetch('/api/fix_meta_single', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: file.path }) });
-                        const data = await res.json();
-                        if(data.success) await refreshFiles();
-                        else alert("AI Error: " + data.error);
-                    } catch(e) { alert("Req Error"); } 
-                    finally { loadingFiles.value[file.path] = false; }
-                };
-
-                // Task Methods
-                const fetchFolderSelector = async () => {
-                    try { const res = await fetch('/api/dirs?path='); const data = await res.json(); folderSelectorList.value = data.subdirs; } catch(e){}
-                };
-                const selectTaskFolder = (path) => { taskTargetFolder.value = path; showFolderSelector.value = false; };
-                const saveTasksConfig = async () => {
-                    await fetch('/api/tasks/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ tasks: taskConfig.value, target_path: taskTargetFolder.value }) });
-                    alert("任务配置已保存");
-                };
-                const runTask = async (id) => {
-                    if(!confirm("立即执行?")) return;
-                    await fetch(`/api/tasks/run/${id}`, { method: 'POST' });
-                    fetchLogs();
-                };
-                const fetchLogs = async () => {
-                    try { const res = await fetch('/api/tasks/logs'); const data = await res.json(); taskLogs.value = data.logs; } catch(e){}
-                };
-
-                // Dedupe Methods
-                const fetchResults = async () => {
-                    const res = await fetch('/api/results');
-                    const data = await res.json();
-                    results.value = data.results;
-                };
-                const fetchCandidates = async () => {
-                    const res = await fetch('/api/candidates');
-                    const data = await res.json();
-                    results.value = data.results;
-                };
-                const deleteSelected = async () => {
-                    if(!confirm("删除选中文件？")) return;
-                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: selectedFiles.value }) });
-                    selectedFiles.value = [];
-                    fetchResults();
-                };
-                const toggleSelect = (path) => {
-                    if (selectedFiles.value.includes(path)) selectedFiles.value = selectedFiles.value.filter(p => p !== path);
-                    else selectedFiles.value.push(path);
-                };
-                const isSelected = (path) => selectedFiles.value.includes(path);
-
-
-                // Polling & Computed
-                const pollStatus = async () => {
+                // 2. 数据获取
+                const loadStatus = async () => {
                     try {
                         const res = await fetch('/api/status');
                         const data = await res.json();
                         status.value = data;
+                        isBusy.value = data.status === 'scanning' || data.status === 'analyzing';
+                        
                         if(data.config) {
                             config.value = data.config;
                             if(!form.value.apiKey) form.value.apiKey = data.config.masked_key;
                             if(!form.value.modelName) form.value.modelName = data.config.model_name;
                             if(!form.value.proxyUrl) form.value.proxyUrl = data.config.proxy_url;
-                            if(data.config.task_target_path) taskTargetFolder.value = data.config.task_target_path;
+                            
+                            // 合并任务配置
                             if(data.config.tasks_config) {
-                                for(let k in data.config.tasks_config) {
-                                    if(taskConfig.value[k]) Object.assign(taskConfig.value[k], data.config.tasks_config[k]);
+                                for(let k in tasks.value) {
+                                    if(data.config.tasks_config[k]) Object.assign(tasks.value[k], data.config.tasks_config[k]);
                                 }
                             }
                         }
-                        
-                        // Auto-refresh logic
-                        if (status.value.status === 'idle') {
-                            if (isScanningPath.value) { refreshFiles(); isScanningPath.value = null; }
-                            if (results.value.length === 0 && status.value.candidates_count > 0) fetchCandidates();
-                        }
-                        if (status.value.status === 'done' && results.value.length === 0) fetchResults();
-
-                    } catch(e){}
+                    } catch(e) {}
                 };
 
-                // Pagination logic
-                const filteredFiles = computed(() => {
-                    if(!fileSearch.value) return allFiles.value;
-                    const q = fileSearch.value.toLowerCase();
-                    return allFiles.value.filter(f => f.filename.toLowerCase().includes(q) || f.artist.toLowerCase().includes(q) || f.title.toLowerCase().includes(q));
-                });
-                const paginatedFiles = computed(() => {
-                    const start = (currentPage.value - 1) * pageSize.value;
-                    return filteredFiles.value.slice(start, start + pageSize.value);
-                });
-                const totalPages = computed(() => Math.ceil(filteredFiles.value.length / pageSize.value));
-                const isAllFilesSelected = computed(() => paginatedFiles.value.length > 0 && paginatedFiles.value.every(f => managerSelection.value.includes(f.path)));
-                const toggleSelectAllFiles = () => {
-                    if (isAllFilesSelected.value) {
-                        const currentPaths = paginatedFiles.value.map(f => f.path);
-                        managerSelection.value = managerSelection.value.filter(p => !currentPaths.includes(p));
-                    } else {
-                        const currentPaths = paginatedFiles.value.map(f => f.path);
-                        managerSelection.value = [...new Set([...managerSelection.value, ...currentPaths])];
+                const refreshFiles = async () => {
+                    isListLoading.value = true;
+                    try {
+                        const params = new URLSearchParams({
+                            page: page.value,
+                            page_size: pageSize.value,
+                            search: fileSearch.value,
+                            folder: filterFolder.value
+                        });
+                        const res = await fetch(`/api/files/page?${params}`);
+                        const data = await res.json();
+                        files.value = data.files;
+                        totalFilesCount.value = data.total;
+                        totalPages.value = data.total_pages;
+                    } finally {
+                        isListLoading.value = false;
                     }
                 };
-                const previewRename = computed(() => {
-                    let sample = {artist: '周杰伦', album_artist: '周杰伦', title: '晴天', album: '叶惠美'};
-                    if (managerSelection.value.length > 0) { const f = allFiles.value.find(x => x.path === managerSelection.value[0]); if(f) sample = f; }
-                    return renamePattern.value.replace('{artist}', sample.artist).replace('{title}', sample.title).replace('{album}', sample.album);
-                });
-                const progressPercent = computed(() => status.value.total ? Math.min(100, Math.round((status.value.progress / status.value.total) * 100)) : 0);
 
-                // Watch Logs & Auto Scroll
-                watch(taskLogs, () => {
-                    nextTick(() => {
-                        if (logContainer.value) logContainer.value.scrollTop = logContainer.value.scrollHeight;
+                const fetchDirs = async (path = '') => {
+                    const res = await fetch(`/api/dirs?path=${encodeURIComponent(path || '')}`);
+                    const data = await res.json();
+                    subDirs.value = data.subdirs;
+                    currentNavPath.value = data.current_path;
+                    isNavRoot.value = data.is_root;
+                    parentNavPath.value = data.parent_path;
+                };
+
+                // 3. 操作逻辑
+                const scanFolder = async (path) => {
+                    isScanningPath.value = path;
+                    await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path }) });
+                    // 轮询会更新状态，不需要立即 await
+                };
+
+                const startScanAll = async () => {
+                    await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: null }) });
+                };
+
+                const startAnalyze = async () => fetch('/api/analyze', { method: 'POST' });
+
+                const saveConfig = async () => {
+                    await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ api_key: form.value.apiKey, model_name: form.value.modelName, proxy_url: form.value.proxyUrl }) });
+                    alert('配置已保存');
+                    loadStatus();
+                };
+
+                const fetchModels = async () => {
+                    loadingModels.value = true;
+                    try {
+                        const res = await fetch('/api/models');
+                        const data = await res.json();
+                        if(data.models) {
+                            models.value = data.models;
+                            alert(`刷新成功，获取到 ${data.models.length} 个模型`);
+                        }
+                    } catch { alert('获取模型失败，请检查网络或 Key'); }
+                    finally { loadingModels.value = false; }
+                };
+
+                // 4. 文件管理操作
+                const selectFolder = (path) => {
+                    filterFolder.value = path;
+                    currentFolder.value = path;
+                    page.value = 1;
+                    refreshFiles();
+                };
+
+                const changePage = (delta) => {
+                    page.value += delta;
+                    refreshFiles();
+                };
+
+                // 防抖搜索
+                let timeout;
+                const debouncedSearch = () => {
+                    clearTimeout(timeout);
+                    timeout = setTimeout(() => {
+                        fileSearch.value = searchInput.value;
+                        page.value = 1;
+                        refreshFiles();
+                    }, 300);
+                };
+
+                const toggleSelectAll = () => {
+                    if (isAllFilesSelected.value) {
+                        const ids = files.value.map(f => f.path);
+                        selection.value = selection.value.filter(id => !ids.includes(id));
+                    } else {
+                        const ids = files.value.map(f => f.path);
+                        selection.value = [...new Set([...selection.value, ...ids])];
+                    }
+                };
+
+                const isAllFilesSelected = computed(() => files.value.length > 0 && files.value.every(f => selection.value.includes(f.path)));
+
+                const fixMeta = async (file) => {
+                    processingFiles.value[file.path] = true;
+                    try {
+                        const res = await fetch('/api/fix_meta_single', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: file.path }) });
+                        const data = await res.json();
+                        if(data.success) refreshFiles();
+                        else alert('AI 修复失败: ' + data.error);
+                    } finally {
+                        processingFiles.value[file.path] = false;
+                    }
+                };
+
+                const deleteOne = async (file) => {
+                    if(!confirm(`确认删除 ${file.filename}?`)) return;
+                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: [file.path] }) });
+                    refreshFiles();
+                };
+
+                const deleteSelected = async () => {
+                    if(!confirm(`确认删除 ${selection.value.length} 个文件?`)) return;
+                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: selection.value }) });
+                    selection.value = [];
+                    refreshFiles();
+                    if(currentTab.value === 'dedupe') fetchResults();
+                };
+
+                const applyMetadata = async () => {
+                    if(!confirm('确认批量修改?')) return;
+                    const body = { paths: selection.value, ...metaEdit.value };
+                    // 清理空值
+                    for(let k in body) if(body[k] === '') body[k] = null;
+                    await fetch('/api/update_meta', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+                    refreshFiles();
+                    selection.value = [];
+                };
+
+                const applyRename = async () => {
+                    if(!confirm('确认批量重命名?')) return;
+                    await fetch('/api/rename', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: selection.value, pattern: renamePattern.value }) });
+                    refreshFiles();
+                    selection.value = [];
+                };
+
+                // 5. 计划任务
+                const taskName = (k) => ({dedupe_quality:'音质去重', clean_short:'短音频清理', extract_meta:'元数据提取', clean_junk:'垃圾清理'}[k] || k);
+                const taskIcon = (k) => ({dedupe_quality:'fa-solid fa-volume-high', clean_short:'fa-solid fa-scissors', extract_meta:'fa-solid fa-file-invoice', clean_junk:'fa-solid fa-broom'}[k]);
+                const taskColor = (k) => ({dedupe_quality:'bg-blue-100 text-blue-600', clean_short:'bg-yellow-100 text-yellow-600', extract_meta:'bg-green-100 text-green-600', clean_junk:'bg-red-100 text-red-600'}[k]);
+
+                const saveTasks = async () => {
+                    await fetch('/api/tasks/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ tasks: tasks.value, target_path: config.value.task_target_path }) });
+                    alert('计划任务已保存');
+                };
+
+                const runTask = async (id) => {
+                    if(!confirm('立即手动执行?')) return;
+                    await fetch(`/api/tasks/run/${id}`, { method: 'POST' });
+                    fetchLogs();
+                };
+
+                const fetchLogs = async () => {
+                    const res = await fetch('/api/tasks/logs');
+                    const data = await res.json();
+                    // 解析日志格式 [TIME] MSG
+                    logs.value = data.logs.map(l => {
+                        const match = l.match(/^\[(.*?)\] (.*)/);
+                        return match ? { time: match[1], msg: match[2] } : { time: '', msg: l };
                     });
-                }, { deep: true });
+                };
 
-                // Init
+                const logColor = (msg) => {
+                    if(msg.includes('删除')) return 'text-yellow-400 font-bold';
+                    if(msg.includes('完成') || msg.includes('提取')) return 'text-emerald-400 font-bold';
+                    if(msg.includes('失败') || msg.includes('Error')) return 'text-rose-400 font-bold';
+                    return '';
+                };
+
+                // 日志自动滚动
+                watch(logs, () => {
+                    nextTick(() => {
+                        if(logBox.value) logBox.value.scrollTop = logBox.value.scrollHeight;
+                    });
+                });
+
+                // 6. 去重结果
+                const fetchResults = async () => {
+                    const res = await fetch('/api/results');
+                    const data = await res.json();
+                    results.value = data.results;
+                };
+                
+                const fetchCandidates = async () => {
+                    const res = await fetch('/api/candidates');
+                    const data = await res.json();
+                    results.value = data.results;
+                };
+
+                const toggleSelect = (path) => {
+                    if(selection.value.includes(path)) selection.value = selection.value.filter(id => id !== path);
+                    else selection.value.push(path);
+                };
+
+                const isSelected = (path) => selection.value.includes(path);
+
+                // === 初始化与轮询 ===
+                const ws = ref(null);
+                
+                const initWS = () => {
+                    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                    ws.value = new WebSocket(`${protocol}//${window.location.host}/ws/progress`);
+                    
+                    ws.value.onopen = () => { wsConnected.value = true; };
+                    ws.value.onclose = () => { 
+                        wsConnected.value = false;
+                        setTimeout(initWS, 3000); 
+                    };
+                    ws.value.onmessage = (e) => {
+                        const data = JSON.parse(e.data);
+                        status.value = data;
+                        isBusy.value = data.status === 'scanning' || data.status === 'analyzing';
+                        
+                        // 自动刷新逻辑
+                        if(data.status === 'idle') {
+                            if(isScanningPath.value) { refreshFiles(); isScanningPath.value = ''; }
+                            if(results.value.length === 0 && data.candidates_count > 0) fetchCandidates();
+                        }
+                        if(data.status === 'done') fetchResults();
+                    };
+                };
+
                 onMounted(() => {
-                    const savedTheme = localStorage.getItem('theme');
-                    if (savedTheme === 'dark' || (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+                    // 主题初始化
+                    const saved = localStorage.getItem('theme');
+                    if(saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
                         isDarkMode.value = true;
                         document.documentElement.classList.add('dark');
                     }
-                    pollStatus();
+                    
+                    loadStatus();
                     fetchDirs();
+                    refreshFiles();
+                    initWS();
+                    
+                    // 定时刷新日志
                     setInterval(() => {
-                        pollStatus();
                         if(currentTab.value === 'tasks') fetchLogs();
-                    }, 2000);
+                    }, 3000);
                 });
 
                 return {
-                    currentTab, isDarkMode, toggleTheme, isBusy, isFetchingModels, logContainer,
-                    form, config, status, availableModels,
-                    allFiles, subDirs, currentNavPath, isNavRoot, parentNavPath,
-                    searchInput, debouncedSearch, loadingFiles, isScanningPath,
-                    managerSelection, metaEdit, renamePattern,
-                    taskConfig, taskTargetFolder, taskLogs, showFolderSelector, folderSelectorList,
-                    results, selectedFiles,
-                    paginatedFiles, filteredFiles, totalPages, currentPage, pageSize,
+                    currentTab, isDarkMode, toggleTheme, isBusy, wsConnected,
+                    form, config, status, models, loadingModels,
+                    files, totalFilesCount, page, pageSize, totalPages, searchInput, 
+                    subDirs, currentNavPath, isNavRoot, parentNavPath, currentFolder, filterFolder, isListLoading,
+                    selection, processingFiles, isScanningPath, metaEdit, renamePattern,
+                    tasks, logs, logBox, results,
                     // methods
-                    fetchModels, saveConfig, fetchDirs, scanFolder, refreshFiles,
-                    startScanAll, startAnalyze, deleteOne, deleteManagerSelection,
-                    applyMetadata, applyRename, fixSingleAI,
-                    fetchFolderSelector, selectTaskFolder, saveTasksConfig, runTask, fetchLogs,
-                    fetchResults, fetchCandidates, deleteSelected, toggleSelect, isSelected,
-                    getTaskName, getTaskDesc, getTaskIcon, getTaskColor, progressPercent, getLogClass,
-                    currentNavPathName: computed(() => currentNavPath.value ? currentNavPath.value.split('/').pop() : '根目录'),
-                    toggleSelectAllFiles, isAllFilesSelected, previewRename, tabClass
+                    tabClass, fetchDirs, selectFolder, scanFolder, refreshFiles, changePage, 
+                    debouncedSearch, toggleSelectAll, isAllFilesSelected, fixMeta, deleteOne, deleteSelected, deleteManagerSelection,
+                    applyMetadata, applyRename, saveConfig, fetchModels, startScanAll, startAnalyze,
+                    taskName, taskIcon, taskColor, saveTasks, runTask, fetchLogs, logColor,
+                    fetchResults, fetchCandidates, toggleSelect, isSelected
                 };
             }
         }).mount('#app');
