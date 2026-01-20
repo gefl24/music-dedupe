@@ -73,10 +73,10 @@
                         </div>
                         <div class="flex gap-3">
                             <button @click="startScan" :disabled="isBusy" class="flex-1 bg-blue-500 text-white py-3 rounded hover:bg-blue-600 disabled:opacity-50">
-                                1. 扫描
+                                1. 扫描 (模糊匹配)
                             </button>
                             <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="flex-1 bg-purple-500 text-white py-3 rounded hover:bg-purple-600 disabled:opacity-50">
-                                2. AI 分析
+                                2. AI 智能分析
                             </button>
                         </div>
                     </div>
@@ -84,7 +84,9 @@
 
                 <div v-if="results.length > 0" class="bg-white rounded-lg shadow-sm p-6">
                     <div class="flex justify-between items-center mb-4">
-                        <h3 class="font-bold text-lg">重复分析结果 ({{ results.length }} 组)</h3>
+                        <h3 class="font-bold text-lg">
+                            {{ isAiResult ? 'AI 分析结果' : '疑似重复列表 (可手动删除)' }} ({{ results.length }} 组)
+                        </h3>
                         <button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
                             删除选中 ({{ selectedFiles.length }})
                         </button>
@@ -110,7 +112,7 @@
             <div v-else class="h-full flex gap-6">
                 <div class="flex-1 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden">
                     <div class="p-4 border-b flex gap-3 items-center flex-wrap">
-                        <input type="text" v-model="fileSearch" placeholder="搜索艺术家、标题或文件名..." class="flex-1 border p-2 rounded text-sm min-w-[200px]">
+                        <input type="text" v-model="fileSearch" placeholder="搜索..." class="flex-1 border p-2 rounded text-sm min-w-[200px]">
                         
                         <select v-model.number="pageSize" @change="currentPage = 1" class="border p-2 rounded text-sm">
                             <option :value="50">50条/页</option>
@@ -129,9 +131,10 @@
                                     <th class="p-2 col-checkbox"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected"></th>
                                     <th class="p-2 col-action">操作</th>
                                     <th class="p-2 col-file">文件名</th>
+                                    <th class="p-2 col-meta">标题 (Title)</th>
                                     <th class="p-2 col-meta">艺术家 (Artist)</th>
-                                    <th class="p-2 col-meta font-semibold text-indigo-700">专辑艺术家 (Album Artist)</th> <th class="p-2 col-meta">标题 (Title)</th>
                                     <th class="p-2 col-meta">专辑 (Album)</th>
+                                    <th class="p-2 col-meta font-semibold text-indigo-700">专辑艺术家 (Album Artist)</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -148,9 +151,10 @@
                                         </button>
                                     </td>
                                     <td class="p-2 truncate text-gray-700" :title="file.filename">{{ file.filename }}</td>
+                                    <td class="p-2 truncate text-gray-500" :title="file.title">{{ file.title }}</td>
                                     <td class="p-2 truncate text-gray-500" :title="file.artist">{{ file.artist }}</td>
-                                    <td class="p-2 truncate text-indigo-700 font-medium" :title="file.album_artist">{{ file.album_artist }}</td> <td class="p-2 truncate text-gray-500" :title="file.title">{{ file.title }}</td>
                                     <td class="p-2 truncate text-gray-500" :title="file.album">{{ file.album }}</td>
+                                    <td class="p-2 truncate text-indigo-700 font-medium" :title="file.album_artist">{{ file.album_artist }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -173,6 +177,16 @@
                 </div>
 
                 <div class="w-80 flex flex-col gap-6">
+                    <div v-if="managerSelection.length > 0" class="bg-red-50 p-4 rounded-lg border border-red-100">
+                        <h3 class="font-bold text-red-700 mb-2 flex items-center gap-2">
+                            <i class="fa-solid fa-trash-can"></i> 危险区域
+                        </h3>
+                        <button @click="deleteManagerSelection" 
+                            class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 text-sm shadow">
+                            删除选中的 {{ managerSelection.length }} 个文件
+                        </button>
+                    </div>
+
                     <div class="bg-white p-5 rounded-lg shadow-sm">
                         <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
                             <i class="fa-solid fa-tags"></i> 批量修改标签
@@ -244,19 +258,18 @@
                     status: { status: 'idle', message: '等待操作...', candidates_count: 0, progress: 0, total: 100 },
                     results: [],
                     selectedFiles: [], 
-                    
+                    isAiResult: false, // 标记当前展示的是AI结果还是疑似结果
+
                     // 文件管理相关
                     allFiles: [],
                     fileSearch: '',
                     managerSelection: [],
-                    // ✅ 新增 album_artist 编辑对象
                     metaEdit: { artist: '', album_artist: '', title: '', album: '' },
                     renamePattern: '{artist} - {title}',
                     
                     currentPage: 1,
                     pageSize: 50,
                     loadingFiles: {},
-                    
                     pollInterval: null
                 }
             },
@@ -272,7 +285,7 @@
                     return this.allFiles.filter(f => 
                         f.filename.toLowerCase().includes(q) || 
                         f.artist.toLowerCase().includes(q) || 
-                        f.album_artist.toLowerCase().includes(q) || // 搜索支持
+                        f.album_artist.toLowerCase().includes(q) || 
                         f.title.toLowerCase().includes(q)
                     );
                 },
@@ -288,16 +301,18 @@
                     return this.paginatedFiles.length > 0 && this.paginatedFiles.every(f => this.managerSelection.includes(f.path));
                 },
                 previewRename() {
-                    let sample = {artist: 'Jay Chou', album_artist: 'Jay', title: 'Sunny Day', album: 'Ye Hui Mei'};
+                    let sample = {artist: 'Jay Chou / Gary', album_artist: 'Jay', title: 'Sunny Day', album: 'Ye Hui Mei'};
                     if (this.managerSelection.length > 0) {
                         const file = this.allFiles.find(f => f.path === this.managerSelection[0]);
                         if (file) sample = file;
                     }
+                    // 预览逻辑模拟后端处理：替换 / 为 &
+                    const format = (s) => (s || 'Unknown').replace(/ \/ /g, ' & ').replace(/\//g, ' & ');
                     return this.renamePattern
-                        .replace('{artist}', sample.artist || 'Unknown')
-                        .replace('{album_artist}', sample.album_artist || 'Unknown') // 预览支持
-                        .replace('{title}', sample.title || sample.filename)
-                        .replace('{album}', sample.album || 'Unknown');
+                        .replace('{artist}', format(sample.artist))
+                        .replace('{album_artist}', format(sample.album_artist))
+                        .replace('{title}', format(sample.title || sample.filename))
+                        .replace('{album}', format(sample.album));
                 }
             },
             watch: {
@@ -313,6 +328,7 @@
                 this.pollInterval = setInterval(this.pollStatus, 2000);
             },
             methods: {
+                // ... 配置相关 ...
                 async saveConfig() {
                     if(!this.form.apiKey) return alert("请输入 API Key");
                     try {
@@ -331,8 +347,16 @@
                         if (data.models) this.availableModels = data.models;
                     } catch(e) {}
                 },
-                async startScan() { await fetch('/api/scan', { method: 'POST' }); },
-                async startAnalyze() { await fetch('/api/analyze', { method: 'POST' }); },
+                // ... 任务流程 ...
+                async startScan() { 
+                    this.results = []; // 清空之前的
+                    this.isAiResult = false;
+                    await fetch('/api/scan', { method: 'POST' }); 
+                },
+                async startAnalyze() { 
+                    this.isAiResult = true; // 标记开始AI分析
+                    await fetch('/api/analyze', { method: 'POST' }); 
+                },
                 async pollStatus() {
                     try {
                         const res = await fetch('/api/status');
@@ -344,14 +368,31 @@
                             if(data.config.proxy_url) this.form.proxyUrl = data.config.proxy_url;
                         }
                         this.status = data;
-                        if (this.status.status === 'done' && this.results.length === 0) await this.fetchResults();
+                        
+                        // 逻辑：如果扫描完但没结果，拉取疑似列表
+                        if (this.status.status === 'idle' && this.results.length === 0 && this.status.candidates_count > 0 && !this.isAiResult) {
+                            await this.fetchCandidates();
+                        }
+                        // 逻辑：如果AI分析完，拉取AI结果
+                        if (this.status.status === 'done' && this.results.length === 0 && this.isAiResult) {
+                            await this.fetchResults();
+                        }
                     } catch(e) {}
                 },
+                // 拉取疑似列表
+                async fetchCandidates() {
+                    const res = await fetch('/api/candidates');
+                    const data = await res.json();
+                    this.results = data.results;
+                },
+                // 拉取AI结果
                 async fetchResults() {
                     const res = await fetch('/api/results');
                     const data = await res.json();
                     this.results = data.results;
+                    this.isAiResult = true;
                 },
+                // ... 列表操作 ...
                 isSelected(path) { return this.selectedFiles.includes(path); },
                 toggleSelect(path) {
                     if (this.isSelected(path)) this.selectedFiles = this.selectedFiles.filter(p => p !== path);
@@ -361,9 +402,12 @@
                     if (!confirm(`确定删除 ${this.selectedFiles.length} 个文件？`)) return;
                     await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.selectedFiles }) });
                     this.selectedFiles = [];
-                    this.fetchResults();
+                    // 重新拉取当前列表
+                    if (this.isAiResult) this.fetchResults(); else this.fetchCandidates();
                     this.refreshFiles();
                 },
+
+                // ... 文件管理相关 ...
                 async refreshFiles() {
                     const res = await fetch('/api/files');
                     const data = await res.json();
@@ -378,9 +422,14 @@
                         this.managerSelection = [...new Set([...this.managerSelection, ...currentPaths])];
                     }
                 },
+                async deleteManagerSelection() {
+                    if (!confirm(`⚠️ 高能预警：确定永久删除选中的 ${this.managerSelection.length} 个文件吗？`)) return;
+                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.managerSelection }) });
+                    this.managerSelection = [];
+                    this.refreshFiles();
+                },
                 async applyMetadata() {
                     if (!confirm(`确定修改 ${this.managerSelection.length} 个文件的标签吗？`)) return;
-                    // ✅ 提交 album_artist
                     const body = { 
                         paths: this.managerSelection, 
                         artist: this.metaEdit.artist || null, 
