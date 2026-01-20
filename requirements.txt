@@ -2,9 +2,11 @@ fastapi
 uvicorn
 jinja2
 python-multipart
-google-generativeai
+google-generativeai>=0.8.3
 mutagen
+thefuzz
 requests
 aiofiles
-thefuzz
 python-Levenshtein
+apscheduler
+Pillow
