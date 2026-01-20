@@ -2,7 +2,6 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Optional
-# 使用相对引用防止 ModuleNotFoundError
 from . import core
 
 app = FastAPI()
@@ -17,7 +16,6 @@ class DeleteRequest(BaseModel):
 
 @app.get("/")
 async def index():
-    # 使用 FileResponse 避免 Jinja2 与 Vue 冲突
     return FileResponse("app/templates/index.html")
 
 @app.get("/api/status")
@@ -31,16 +29,20 @@ async def get_status():
         "results_count": len(core.state.results),
         "config": {
             "has_key": bool(core.state.api_key),
-            # 这里的 Key 是脱敏的，仅用于前端显示状态
             "masked_key": (core.state.api_key[:4] + "***" + core.state.api_key[-4:]) if core.state.api_key else "",
             "model_name": core.state.model_name,
             "proxy_url": core.state.proxy_url
         }
     }
 
+# ✅ 新增：获取模型列表的接口
+@app.get("/api/models")
+async def list_models():
+    models = core.state.get_available_models()
+    return {"models": models}
+
 @app.post("/api/config")
 async def set_config(config: ConfigRequest):
-    # 自动去除首尾空格
     core.state.api_key = config.api_key.strip()
     core.state.model_name = config.model_name.strip()
     core.state.proxy_url = config.proxy_url.strip() if config.proxy_url else ""
@@ -70,7 +72,6 @@ async def delete_files(req: DeleteRequest):
     deleted = []
     failed = []
     for path in req.paths:
-        # 安全检查
         if not path.startswith("/music"):
             failed.append(path)
             continue
