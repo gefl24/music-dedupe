@@ -13,7 +13,7 @@
         <div class="flex justify-between items-center mb-8">
             <h1 class="text-3xl font-bold text-indigo-600"><i class="fa-solid fa-music"></i> 音乐去重助手 (Gemini版)</h1>
             <div class="text-sm">
-                <span v-if="config.has_key" class="text-green-600 font-bold"><i class="fa-solid fa-check-circle"></i> 已连接: {{ config.model_name }}</span>
+                <span v-if="config.has_key" class="text-green-600 font-bold"><i class="fa-solid fa-check-circle"></i> 已就绪: {{ config.model_name }}</span>
                 <span v-else class="text-red-500"><i class="fa-solid fa-exclamation-triangle"></i> 未配置 API Key</span>
             </div>
         </div>
@@ -21,7 +21,7 @@
         <div class="bg-white p-6 rounded-lg shadow-md mb-6">
             <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 系统配置</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
+                <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
                     <input type="password" v-model="form.apiKey" placeholder="输入以 AIza 开头的 Key" 
                         class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
@@ -33,6 +33,12 @@
                         <option value="gemini-1.5-pro">Gemini 1.5 Pro (更强: 适合复杂判断)</option>
                         <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp (最新)</option>
                     </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 代理 (可选)</label>
+                    <input type="text" v-model="form.proxyUrl" placeholder="例如: http://192.168.1.5:7890" 
+                        class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
+                    <p class="text-xs text-gray-500 mt-1">注意: 如使用宿主机代理，请填写局域网IP，勿填 127.0.0.1</p>
                 </div>
             </div>
             <div class="mt-4 text-right">
@@ -48,7 +54,7 @@
             <div class="flex flex-wrap gap-4 mb-4">
                 <button @click="startScan" :disabled="isBusy" 
                     class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex-1">
-                    <i class="fa-solid fa-magnifying-glass"></i> 第一步: 扫描本地文件
+                    <i class="fa-solid fa-magnifying-glass"></i> 第一步: 扫描本地文件 (模糊匹配)
                 </button>
                 <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" 
                     class="bg-purple-500 text-white px-6 py-3 rounded hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex-1">
@@ -81,7 +87,7 @@
 
             <div v-if="results.length === 0" class="text-center py-10 text-gray-500">
                 <i class="fa-solid fa-check-double text-4xl mb-4 text-green-500"></i>
-                <p>太棒了！AI 没有发现重复文件。</p>
+                <p>AI 没有发现确认的重复文件。</p>
             </div>
 
             <div v-for="(group, gIndex) in results" :key="gIndex" class="border rounded-lg p-4 mb-6 bg-gray-50 hover:shadow-md transition">
@@ -126,9 +132,10 @@
                 return {
                     form: {
                         apiKey: '',
-                        modelName: 'gemini-1.5-flash'
+                        modelName: 'gemini-1.5-flash',
+                        proxyUrl: ''
                     },
-                    config: { has_key: false, masked_key: '', model_name: '' },
+                    config: { has_key: false, masked_key: '', model_name: '', proxy_url: '' },
                     status: { status: 'idle', message: '等待操作...', candidates_count: 0, progress: 0, total: 100 },
                     results: [],
                     selectedFiles: [],
@@ -144,7 +151,6 @@
                     return Math.min(100, Math.round((this.status.progress / this.status.total) * 100));
                 },
                 showResults() {
-                    // 当有结果 或者 状态是 done 时显示
                     return this.results.length > 0 || this.status.status === 'done';
                 }
             },
@@ -171,12 +177,13 @@
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({ 
                                 api_key: this.form.apiKey,
-                                model_name: this.form.modelName
+                                model_name: this.form.modelName,
+                                proxy_url: this.form.proxyUrl 
                             })
                         });
                         if(res.ok) {
                             alert("配置已保存！");
-                            this.pollStatus(); // 刷新状态
+                            this.pollStatus();
                         }
                     } catch(e) { alert("保存失败: " + e); }
                 },
@@ -191,17 +198,15 @@
                         const res = await fetch('/api/status');
                         const data = await res.json();
                         
-                        // 首次加载或后端有配置更新时，同步到表单
-                        if (data.config && (!this.config.has_key || this.config.model_name !== data.config.model_name)) {
+                        // 回显配置到表单
+                        if (data.config && (!this.config.has_key || this.config.model_name !== data.config.model_name || this.config.proxy_url !== data.config.proxy_url)) {
                             this.config = data.config;
-                            // 如果表单是空的，填入后端回显的值（Key不回显完整值，只显示占位）
                             if(!this.form.apiKey && data.config.has_key) this.form.apiKey = data.config.masked_key; 
                             if(data.config.model_name) this.form.modelName = data.config.model_name;
+                            if(data.config.proxy_url) this.form.proxyUrl = data.config.proxy_url;
                         }
 
                         this.status = data;
-                        
-                        // 如果状态完成且本地没有结果，拉取结果
                         if (this.status.status === 'done' && this.results.length === 0) {
                             await this.fetchResults();
                         }
@@ -224,7 +229,6 @@
                 },
                 async deleteSelected() {
                     if (!confirm(`确定要永久删除这 ${this.selectedFiles.length} 个文件吗？\n删除后不可恢复！`)) return;
-                    
                     try {
                         const res = await fetch('/api/delete', {
                             method: 'POST',
@@ -233,12 +237,9 @@
                         });
                         const data = await res.json();
                         alert(`成功删除: ${data.deleted.length} 个\n失败: ${data.failed.length} 个`);
-                        
-                        // 从界面移除已删除的文件
                         this.results.forEach(group => {
                             group.files = group.files.filter(f => !data.deleted.includes(f.path));
                         });
-                        // 移除只剩一个文件的组
                         this.results = this.results.filter(g => g.files.length > 1);
                         this.selectedFiles = [];
                     } catch(e) { alert("请求失败: " + e); }
