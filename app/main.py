@@ -28,6 +28,10 @@ class RenameRequest(BaseModel):
 class SingleFileRequest(BaseModel):
     path: str
 
+# ✅ 新增：扫描请求包含路径
+class ScanRequest(BaseModel):
+    path: Optional[str] = None
+
 @app.get("/")
 async def index():
     return FileResponse("app/templates/index.html")
@@ -46,7 +50,7 @@ async def get_status():
             "masked_key": (core.state.api_key[:4] + "***" + core.state.api_key[-4:]) if core.state.api_key else "",
             "model_name": core.state.model_name,
             "proxy_url": core.state.proxy_url,
-            "music_dir": core.state.music_dir # ✅ 新增：返回根目录路径
+            "music_dir": core.state.music_dir
         }
     }
 
@@ -58,6 +62,12 @@ async def list_models():
 @app.get("/api/files")
 async def get_all_files():
     return {"files": core.state.files}
+
+# ✅ 新增：获取目录结构接口
+@app.get("/api/dirs")
+async def get_dirs():
+    dirs = core.get_dir_structure()
+    return {"dirs": dirs}
 
 @app.get("/api/candidates")
 async def get_candidates():
@@ -94,11 +104,13 @@ async def set_config(config: ConfigRequest):
     core.state.save_config()
     return {"status": "ok"}
 
+# ✅ 修改：扫描接口接收路径
 @app.post("/api/scan")
-async def start_scan():
+async def start_scan(req: ScanRequest):
     if core.state.status != "idle" and core.state.status != "done":
         return JSONResponse(status_code=400, content={"error": "Busy"})
-    core.start_scan_thread()
+    # 传入目标路径，如果为 None 则全量扫描
+    core.start_scan_thread(req.path)
     return {"status": "started"}
 
 @app.post("/api/analyze")
