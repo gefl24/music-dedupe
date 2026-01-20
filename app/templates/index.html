@@ -26,19 +26,29 @@
                     <input type="password" v-model="form.apiKey" placeholder="输入以 AIza 开头的 Key" 
                         class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
                 </div>
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">选择模型</label>
-                    <select v-model="form.modelName" class="border p-2 rounded w-full bg-white focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <option value="gemini-1.5-flash-002">Gemini 1.5 Flash-002 (推荐: 最新稳定版)</option>
-                        <option value="gemini-1.5-pro-002">Gemini 1.5 Pro-002 (最强: 适合复杂分析)</option>
-                        <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash Exp (实验版: 速度极快)</option>
-                    </select>
-                </div>
+                
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 代理 (可选)</label>
                     <input type="text" v-model="form.proxyUrl" placeholder="例如: http://192.168.1.5:7890" 
                         class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
-                    <p class="text-xs text-gray-500 mt-1">注意: 如使用宿主机代理，请填写局域网IP，勿填 127.0.0.1</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1 flex justify-between">
+                        <span>选择或输入模型名</span>
+                        <a href="#" @click.prevent="fetchModels" class="text-indigo-600 hover:text-indigo-800 text-xs">
+                            <i class="fa-solid fa-sync"></i> 刷新列表
+                        </a>
+                    </label>
+                    <div class="relative">
+                        <input list="model-list" v-model="form.modelName" 
+                            placeholder="手动输入如: gemini-3-flash"
+                            class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <datalist id="model-list">
+                            <option v-for="m in availableModels" :value="m">{{ m }}</option>
+                        </datalist>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">手动输入支持最新模型，点击刷新可获取 Google 官方列表。</p>
                 </div>
             </div>
             <div class="mt-4 text-right">
@@ -132,9 +142,10 @@
                 return {
                     form: {
                         apiKey: '',
-                        modelName: 'gemini-1.5-flash-002', // 默认值也改一下
+                        modelName: 'gemini-1.5-flash-002',
                         proxyUrl: ''
                     },
+                    availableModels: [], // 存储从后端获取的模型
                     config: { has_key: false, masked_key: '', model_name: '', proxy_url: '' },
                     status: { status: 'idle', message: '等待操作...', candidates_count: 0, progress: 0, total: 100 },
                     results: [],
@@ -184,8 +195,24 @@
                         if(res.ok) {
                             alert("配置已保存！");
                             this.pollStatus();
+                            this.fetchModels(); // 保存后自动刷新模型列表
                         }
                     } catch(e) { alert("保存失败: " + e); }
+                },
+                async fetchModels() {
+                    // 获取可用模型
+                    try {
+                        const res = await fetch('/api/models');
+                        const data = await res.json();
+                        if (data.models && data.models.length > 0) {
+                            this.availableModels = data.models;
+                            console.log("Updated models:", this.availableModels);
+                        } else {
+                            alert("无法获取模型列表，请检查 API Key 和网络代理设置。");
+                        }
+                    } catch(e) {
+                        console.error("Failed to fetch models", e);
+                    }
                 },
                 async startScan() {
                     try { await fetch('/api/scan', { method: 'POST' }); } catch(e) { console.error(e); }
@@ -198,7 +225,6 @@
                         const res = await fetch('/api/status');
                         const data = await res.json();
                         
-                        // 回显配置到表单
                         if (data.config && (!this.config.has_key || this.config.model_name !== data.config.model_name || this.config.proxy_url !== data.config.proxy_url)) {
                             this.config = data.config;
                             if(!this.form.apiKey && data.config.has_key) this.form.apiKey = data.config.masked_key; 
