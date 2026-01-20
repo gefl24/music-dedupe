@@ -104,23 +104,32 @@ def get_metadata(path):
     except Exception as e:
         pass
     
-    # 获取各个字段
-    artist = tags.get('artist', [''])[0]
-    album_artist = tags.get('albumartist', [''])[0] # ✅ 新增：读取专辑艺术家
-    title = tags.get('title', [''])[0]
-    album = tags.get('album', [''])[0]
+    # ✅ 核心修改：读取列表并拼接
+    def get_tag_display(key):
+        # 获取所有值，不仅是第一个
+        values = tags.get(key, [])
+        # 过滤掉 None 或空字符串
+        valid_values = [str(v).strip() for v in values if v]
+        if not valid_values:
+            return ""
+        # 用 " / " 拼接，例如 "周杰伦 / 费玉清"
+        return " / ".join(valid_values)
+
+    artist = get_tag_display('artist')
+    album_artist = get_tag_display('albumartist')
+    title = get_tag_display('title')
+    album = get_tag_display('album')
     
-    # 简单的回退逻辑：如果标题为空，用文件名
+    # 回退逻辑：如果标题为空，尝试从文件名解析
     if not title:
         base = os.path.splitext(filename)[0]
         if " - " in base:
             parts = base.split(" - ")
-            if not artist: artist = parts[0] # 仅当 artist 为空时才猜测
+            if not artist: artist = parts[0]
             title = parts[1] if len(parts) > 1 else base
         else:
             title = base
 
-    # 构造搜索文本
     search_text = f"{artist} {album_artist} {title} {filename}".lower()
 
     return {
@@ -128,7 +137,7 @@ def get_metadata(path):
         "path": path,
         "filename": filename,
         "artist": artist.strip(),
-        "album_artist": album_artist.strip(), # ✅ 返回前端
+        "album_artist": album_artist.strip(),
         "title": title.strip(),
         "album": album.strip(),
         "duration": duration,
@@ -137,7 +146,6 @@ def get_metadata(path):
         "search_text": search_text 
     }
 
-# ✅ 修改：增加 album_artist 参数
 def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None, album=None):
     updated_count = 0
     for path in file_paths:
@@ -150,8 +158,10 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
                 audio = FLAC(path)
             
             if audio is not None:
+                # 注意：这里我们写入的是字符串。如果用户输入 "A / B"，大多数播放器会识别为一个名字叫 "A / B" 的歌手
+                # 如果需要严格的多值标签支持，需要在这里做 split 处理，但为了兼容简单编辑，直接写入即可
                 if artist: audio['artist'] = artist
-                if album_artist: audio['albumartist'] = album_artist # ✅ 写入专辑艺术家
+                if album_artist: audio['albumartist'] = album_artist
                 if title: audio['title'] = title
                 if album: audio['album'] = album
                 audio.save()
@@ -176,6 +186,7 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
         meta = next((f for f in state.files if f['path'] == path), None)
         if not meta: meta = get_metadata(path)
 
+        # 文件名不接受 / 等特殊字符，替换为 _
         safe_artist = meta['artist'].replace("/", "_").replace("\\", "_") or "Unknown"
         safe_album_artist = meta['album_artist'].replace("/", "_").replace("\\", "_") or "Unknown"
         safe_title = meta['title'].replace("/", "_").replace("\\", "_") or meta['filename']
@@ -183,7 +194,6 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
 
         ext = os.path.splitext(path)[1]
         
-        # ✅ 支持 {album_artist} 占位符
         new_name = pattern.replace("{artist}", safe_artist)\
                           .replace("{album_artist}", safe_album_artist)\
                           .replace("{title}", safe_title)\
@@ -213,7 +223,6 @@ def fix_single_metadata_ai(path):
     
     meta = get_metadata(path)
     
-    # ✅ Prompt 升级：明确区分 Artist 和 Album Artist
     prompt = f"""
     I have a music file: "{meta['filename']}".
     Current Tags -> Artist: "{meta['artist']}", Album Artist: "{meta['album_artist']}", Title: "{meta['title']}", Album: "{meta['album']}".
@@ -222,8 +231,8 @@ def fix_single_metadata_ai(path):
     Task: Infer and correct metadata based on filename and common knowledge.
     
     Guidelines:
-    1. "Artist": The specific performer of this track.
-    2. "Album Artist": The main artist of the album (crucial for compilations or 'feat.' tracks). Usually same as Artist unless it's a compilation.
+    1. "Artist": The specific performer(s). If multiple, separate with " / ".
+    2. "Album Artist": The main artist of the album.
     3. Fix typos.
     
     Return JSON ONLY:
@@ -239,7 +248,6 @@ def fix_single_metadata_ai(path):
         resp = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
         ai_data = json.loads(resp.text)
         
-        # 写入
         batch_update_metadata(
             [path], 
             ai_data.get('artist'), 
