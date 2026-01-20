@@ -2,11 +2,15 @@ version: '3.8'
 
 services:
   music-dedupe-web:
-    build: .
+    # 替换为你的 GitHub 用户名和仓库名 (注意：ghcr.io 要求全部小写)
+    image: ghcr.io/你的用户名/你的仓库名:latest
     container_name: music-dedupe-web
     ports:
       - "8000:8000"
+    environment:
+      # 如果你的镜像设为私有，NAS 拉取时可能需要登录
+      # 建议先在 NAS 终端执行: docker login ghcr.io -u 用户名 -p GitHub_Token
+      - GEMINI_API_KEY=你的_KEY  # 也可以在 Web 界面配置
     volumes:
-      # ⚠️ 关键：这里挂载你的音乐目录
       - /volume1/music:/music
     restart: unless-stopped
