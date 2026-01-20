@@ -22,7 +22,7 @@ class AppState:
         self.progress = 0
         self.total = 0
         self.message = "准备就绪"
-        self.files = []       
+        self.files = []       # 内存中的文件缓存
         self.candidates = []  
         self.results = []     
         self.load_config()
@@ -79,6 +79,30 @@ class AppState:
             return []
 
 state = AppState()
+
+# ✅ 新增：极速获取目录结构（不扫描文件）
+def get_dir_structure():
+    dirs = []
+    base_len = len(state.music_dir)
+    try:
+        # 使用 os.walk 但只关注文件夹
+        for root, subdirs, _ in os.walk(state.music_dir):
+            # 获取相对路径名称
+            rel_path = root[base_len:]
+            if rel_path.startswith('/'): rel_path = rel_path[1:]
+            if not rel_path: rel_path = "/ (根目录)"
+            
+            # 计算层级，简单的缩进显示
+            dirs.append({
+                "path": root,
+                "name": rel_path,
+                "short_name": os.path.basename(root) or "根目录"
+            })
+    except Exception as e:
+        print(f"Dir scan error: {e}")
+    
+    # 按路径排序
+    return sorted(dirs, key=lambda x: x['path'])
 
 def get_metadata(path):
     filename = os.path.basename(path)
@@ -170,7 +194,6 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
             print(f"Update tag error {path}: {e}")
     return updated_count
 
-# ✅ 重命名逻辑更新
 def batch_rename_files(file_paths, pattern="{artist} - {title}"):
     renamed_count = 0
     for path in file_paths:
@@ -178,21 +201,16 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
         meta = next((f for f in state.files if f['path'] == path), None)
         if not meta: meta = get_metadata(path)
 
-        # 辅助函数：替换分隔符
         def format_for_filename(text):
-            # 将 " / " 或 "/" 替换为 " & "
             return text.replace(" / ", " & ").replace("/", " & ")
 
-        # 辅助函数：文件名安全过滤
         def sanitize(text):
-            # 替换 Windows/Linux 文件系统禁止的字符
             return text.replace("\\", "_").replace("/", "_") \
                        .replace(":", "-").replace("*", "") \
                        .replace("?", "").replace("\"", "'") \
                        .replace("<", "(").replace(">", ")") \
                        .replace("|", "_")
 
-        # 准备数据
         raw_artist = format_for_filename(meta['artist'])
         raw_album_artist = format_for_filename(meta['album_artist'])
         
@@ -269,29 +287,43 @@ def fix_single_metadata_ai(path):
     except Exception as e:
         return {"error": str(e)}
 
-def task_scan_and_group():
+# ✅ 修改：增加 target_path 支持按文件夹扫描
+def task_scan_and_group(target_path=None):
     state.status = "scanning"
-    state.files = []
+    # 注意：这里不清空 state.files，而是进行 更新/追加
+    # 如果是全量扫描 (target_path=None)，则清空
+    if target_path is None:
+        state.files = []
+        scan_dir = state.music_dir
+    else:
+        # 如果是子文件夹，先移除该文件夹下的旧数据（防止重复），再追加
+        state.files = [f for f in state.files if not f['path'].startswith(target_path)]
+        scan_dir = target_path
+
     state.candidates = []
     state.results = [] 
     
     file_list = []
-    for root, _, filenames in os.walk(state.music_dir):
+    # 遍历
+    for root, _, filenames in os.walk(scan_dir):
         for filename in filenames:
             if filename.lower().endswith(('.mp3', '.flac', '.m4a', '.wma')):
                 file_list.append(os.path.join(root, filename))
     
     state.total = len(file_list)
-    state.message = f"发现 {state.total} 个文件，正在提取元数据..."
+    state.message = f"在 {os.path.basename(scan_dir) or '根目录'} 发现 {state.total} 个文件，提取元数据..."
     
     temp_files = []
     for idx, f_path in enumerate(file_list):
         if idx % 50 == 0: state.progress = idx + 1
         temp_files.append(get_metadata(f_path))
     
-    state.files = temp_files
-    state.message = "正在进行模糊聚类..."
+    # 合并到主列表
+    state.files.extend(temp_files)
     
+    state.message = "正在进行模糊聚类 (全局)..."
+    
+    # 模糊聚类 (对所有已加载的文件进行)
     sorted_files = sorted(state.files, key=lambda x: x['search_text'])
     candidates = []
     if not sorted_files:
@@ -312,9 +344,10 @@ def task_scan_and_group():
     
     state.candidates = candidates
     state.status = "idle"
-    state.message = f"扫描完成。发现 {len(state.candidates)} 组疑似重复。"
+    state.message = f"扫描完成。共加载 {len(state.files)} 个文件，发现 {len(state.candidates)} 组疑似重复。"
 
 def task_analyze_with_gemini():
+    # ... (保持不变) ...
     if not state.api_key:
         state.status = "error"
         state.message = "API Key 未配置"
@@ -376,8 +409,8 @@ def task_analyze_with_gemini():
         state.status = "error"
         state.message = f"AI 初始化失败: {str(e)}"
 
-def start_scan_thread():
-    t = threading.Thread(target=task_scan_and_group)
+def start_scan_thread(target_path=None):
+    t = threading.Thread(target=task_scan_and_group, args=(target_path,))
     t.start()
 
 def start_analyze_thread():
