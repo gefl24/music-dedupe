@@ -1,11 +1,12 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict
 from . import core
 
 app = FastAPI()
 
+# ... (原有的 Request Models) ...
 class ConfigRequest(BaseModel):
     api_key: str
     model_name: str
@@ -31,6 +32,10 @@ class SingleFileRequest(BaseModel):
 class ScanRequest(BaseModel):
     path: Optional[str] = None
 
+# ✅ 新增：任务配置请求
+class TaskConfigRequest(BaseModel):
+    tasks: Dict[str, dict]
+
 @app.get("/")
 async def index():
     return FileResponse("app/templates/index.html")
@@ -49,10 +54,12 @@ async def get_status():
             "masked_key": (core.state.api_key[:4] + "***" + core.state.api_key[-4:]) if core.state.api_key else "",
             "model_name": core.state.model_name,
             "proxy_url": core.state.proxy_url,
-            "music_dir": core.state.music_dir
+            "music_dir": core.state.music_dir,
+            "tasks_config": core.state.tasks_config # ✅ 返回任务配置
         }
     }
 
+# ... (原有的 get_dirs, list_models, get_files 等保持不变) ...
 @app.get("/api/models")
 async def list_models():
     models = core.state.get_available_models()
@@ -62,7 +69,6 @@ async def list_models():
 async def get_all_files():
     return {"files": core.state.files}
 
-# ✅ 修改：支持传入 path 获取子目录
 @app.get("/api/dirs")
 async def get_dirs(path: Optional[str] = None):
     dirs = core.get_dir_structure(path)
@@ -72,12 +78,28 @@ async def get_dirs(path: Optional[str] = None):
 async def get_candidates():
     formatted = []
     for group in core.state.candidates:
-        formatted.append({
-            "files": group,
-            "reason": "本地模糊匹配 (疑似)"
-        })
+        formatted.append({"files": group, "reason": "本地模糊匹配 (疑似)"})
     return {"results": formatted}
 
+# ✅ 新增：任务相关接口
+@app.post("/api/tasks/config")
+async def update_tasks_config(req: TaskConfigRequest):
+    core.state.tasks_config.update(req.tasks)
+    core.state.save_config() # 保存并重启调度器
+    return {"status": "ok"}
+
+@app.post("/api/tasks/run/{task_id}")
+async def run_task_manually(task_id: str):
+    # 在后台线程运行，避免阻塞 API
+    import threading
+    threading.Thread(target=core.run_task_wrapper, args=(task_id,)).start()
+    return {"status": "started", "task": task_id}
+
+@app.get("/api/tasks/logs")
+async def get_task_logs():
+    return {"logs": core.state.task_logs}
+
+# ... (原有的 update_meta, fix_meta_single, rename, config, scan, analyze, delete 等保持不变) ...
 @app.post("/api/update_meta")
 async def update_metadata(req: MetadataRequest):
     count = core.batch_update_metadata(req.paths, req.artist, req.album_artist, req.title, req.album)
@@ -86,8 +108,7 @@ async def update_metadata(req: MetadataRequest):
 @app.post("/api/fix_meta_single")
 async def fix_meta_single(req: SingleFileRequest):
     result = core.fix_single_metadata_ai(req.path)
-    if "error" in result:
-        return JSONResponse(status_code=500, content=result)
+    if "error" in result: return JSONResponse(status_code=500, content=result)
     return result
 
 @app.post("/api/rename")
@@ -105,15 +126,13 @@ async def set_config(config: ConfigRequest):
 
 @app.post("/api/scan")
 async def start_scan(req: ScanRequest):
-    if core.state.status != "idle" and core.state.status != "done":
-        return JSONResponse(status_code=400, content={"error": "Busy"})
+    if core.state.status != "idle" and core.state.status != "done": return JSONResponse(status_code=400, content={"error": "Busy"})
     core.start_scan_thread(req.path)
     return {"status": "started"}
 
 @app.post("/api/analyze")
 async def start_analyze():
-    if not core.state.api_key:
-        return JSONResponse(status_code=400, content={"error": "API Key not set"})
+    if not core.state.api_key: return JSONResponse(status_code=400, content={"error": "API Key not set"})
     core.start_analyze_thread()
     return {"status": "started"}
 
@@ -123,14 +142,9 @@ async def get_results():
 
 @app.post("/api/delete")
 async def delete_files(req: DeleteRequest):
-    deleted = []
-    failed = []
+    deleted = []; failed = []
     for path in req.paths:
-        if not path.startswith("/music"):
-            failed.append(path)
-            continue
-        if core.delete_file(path):
-            deleted.append(path)
-        else:
-            failed.append(path)
+        if not path.startswith("/music"): failed.append(path); continue
+        if core.delete_file(path): deleted.append(path)
+        else: failed.append(path)
     return {"deleted": deleted, "failed": failed}
