@@ -1,15 +1,15 @@
-from fastapi import FastAPI, Request, BackgroundTasks
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List
-from . import core  # ✅ 使用相对引用，表示"引入当前目录下的 core"
+
+# 修复点 1: 使用相对引用导入同目录下的 core 模块
+# 解决 "ModuleNotFoundError: No module named 'core'"
+from . import core
 
 app = FastAPI()
-templates = Jinja2Templates(directory="app/templates")
 
-# Pydantic models
+# 定义请求数据模型
 class ConfigRequest(BaseModel):
     api_key: str
 
@@ -17,8 +17,11 @@ class DeleteRequest(BaseModel):
     paths: List[str]
 
 @app.get("/")
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def index():
+    # 修复点 2: 使用 FileResponse 直接返回 HTML 文件
+    # 解决 "jinja2.exceptions.UndefinedError: 'status' is undefined"
+    # 因为这是一个 Vue 单页应用，不需要后端 Jinja2 渲染，直接当静态文件返回即可
+    return FileResponse("app/templates/index.html")
 
 @app.get("/api/status")
 async def get_status():
@@ -60,7 +63,7 @@ async def delete_files(req: DeleteRequest):
     deleted = []
     failed = []
     for path in req.paths:
-        # 安全检查：确保路径在 /music 下
+        # 安全检查：确保路径在 /music 下，防止误删系统文件
         if not path.startswith("/music"):
             failed.append(path)
             continue
