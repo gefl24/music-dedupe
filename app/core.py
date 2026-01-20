@@ -6,7 +6,7 @@ import google.generativeai as genai
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
-from thefuzz import fuzz # 引入模糊匹配库
+from thefuzz import fuzz
 
 # 数据存储路径
 DATA_DIR = "/data"
@@ -16,6 +16,7 @@ class AppState:
     def __init__(self):
         self.api_key = ""
         self.model_name = "gemini-1.5-flash"
+        self.proxy_url = ""  # 代理地址
         self.music_dir = "/music"
         self.status = "idle" 
         self.progress = 0
@@ -25,14 +26,16 @@ class AppState:
         self.candidates = []  
         self.results = []     
         self.load_config()
+        self.apply_proxy() # 初始化时应用代理
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f:
                     config = json.load(f)
-                    self.api_key = config.get("api_key", "")
-                    self.model_name = config.get("model_name", "gemini-1.5-flash")
+                    self.api_key = config.get("api_key", "").strip()
+                    self.model_name = config.get("model_name", "gemini-1.5-flash").strip()
+                    self.proxy_url = config.get("proxy_url", "").strip()
             except Exception as e:
                 print(f"Error loading config: {e}")
 
@@ -43,10 +46,25 @@ class AppState:
             with open(CONFIG_FILE, 'w') as f:
                 json.dump({
                     "api_key": self.api_key,
-                    "model_name": self.model_name
+                    "model_name": self.model_name,
+                    "proxy_url": self.proxy_url
                 }, f)
+            self.apply_proxy() # 保存后立即应用
         except Exception as e:
             print(f"Error saving config: {e}")
+
+    def apply_proxy(self):
+        """动态设置系统代理环境变量"""
+        if self.proxy_url:
+            print(f"Applying Proxy: {self.proxy_url}")
+            os.environ['http_proxy'] = self.proxy_url
+            os.environ['https_proxy'] = self.proxy_url
+            os.environ['HTTP_PROXY'] = self.proxy_url
+            os.environ['HTTPS_PROXY'] = self.proxy_url
+        else:
+            # 如果为空，清除环境变量
+            for key in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
+                os.environ.pop(key, None)
 
 state = AppState()
 
@@ -73,10 +91,9 @@ def get_metadata(path):
     artist = tags.get('artist', [''])[0]
     title = tags.get('title', [''])[0]
     
-    # 如果没有标签，尝试从文件名解析
+    # 尝试从文件名解析
     if not artist and not title:
         base = os.path.splitext(filename)[0]
-        # 尝试常见格式 "Artist - Title"
         if " - " in base:
             parts = base.split(" - ")
             artist = parts[0]
@@ -85,7 +102,6 @@ def get_metadata(path):
             title = base
 
     # 构造用于模糊搜索的文本 (包含歌手、标题、文件名)
-    # 这样即使元数据不全，文件名相似也能匹配
     search_text = f"{artist} {title} {filename}".lower()
 
     return {
@@ -97,7 +113,7 @@ def get_metadata(path):
         "duration": duration,
         "size_mb": size_mb,
         "bitrate": bitrate,
-        "search_text": search_text # 核心字段：用于排序和比对
+        "search_text": search_text 
     }
 
 def task_scan_and_group():
@@ -117,19 +133,13 @@ def task_scan_and_group():
     
     temp_files = []
     for idx, f_path in enumerate(file_list):
-        # 每处理 50 个文件更新一次进度，减少开销
-        if idx % 50 == 0:
-            state.progress = idx + 1
+        if idx % 50 == 0: state.progress = idx + 1
         temp_files.append(get_metadata(f_path))
     
     state.files = temp_files
     state.message = "正在进行模糊聚类 (智能排序+相似度对比)..."
     
-    # --- 核心改进：模糊匹配算法 ---
-    
-    # 1. 按照 search_text 排序
-    # 这一步非常关键：它将相似的文件排在相邻位置
-    # 例如：["adele hello", "adele hello live", "backstreet boys"]
+    # 1. 排序
     sorted_files = sorted(state.files, key=lambda x: x['search_text'])
     
     candidates = []
@@ -139,30 +149,23 @@ def task_scan_and_group():
 
     current_group = [sorted_files[0]]
     
-    # 2. 遍历排序后的列表，比较相邻项
+    # 2. 模糊匹配相邻项
     for i in range(1, len(sorted_files)):
-        prev = current_group[0] # 拿当前组的第一个作为基准
+        prev = current_group[0] 
         curr = sorted_files[i]
         
         state.progress = i
         
-        # 使用 token_set_ratio:
-        # 它自动处理单词乱序和子集问题。
-        # 例如: "周杰伦 晴天" vs "晴天 周杰伦" -> Score 100
-        # "Hello" vs "Hello (Live)" -> Score 100 (因为 Hello 是集合的子集)
+        # 使用 token_set_ratio 处理乱序和包含关系
         similarity = fuzz.token_set_ratio(prev['search_text'], curr['search_text'])
         
-        # 阈值设定为 80，稍微宽松一点，把筛选交给 AI
-        if similarity > 80:
+        if similarity > 80: # 阈值 80
             current_group.append(curr)
         else:
-            # 如果当前组超过1个文件，说明有疑似重复，保存下来
             if len(current_group) > 1:
                 candidates.append(current_group)
-            # 开启新的一组
             current_group = [curr]
             
-    # 处理最后一组
     if len(current_group) > 1:
         candidates.append(current_group)
     
@@ -176,6 +179,7 @@ def task_analyze_with_gemini():
         state.message = "API Key 未配置"
         return
 
+    state.apply_proxy() # 确保代理已应用
     state.status = "analyzing"
     state.results = []
     
@@ -196,7 +200,8 @@ def task_analyze_with_gemini():
             for idx, group in enumerate(batch):
                 prompt_data.append({
                     "group_id": i + idx,
-                    "files": [{k: v for k, v in f.items() if k != 'path' and k != 'search_text'} for f in group]
+                    # 不发送 search_text 和 path 以节省 Token
+                    "files": [{k: v for k, v in f.items() if k not in ['path', 'search_text']} for f in group]
                 })
 
             prompt = f"""
