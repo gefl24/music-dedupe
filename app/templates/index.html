@@ -10,19 +10,14 @@
     <style>
         .loading-spin { animation: spin 1s linear infinite; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-        /* 滚动条 */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
-        
         .col-checkbox { width: 40px; }
-        .col-action { width: 80px; text-align: center; }
-        .col-file { width: 200px; }
-        .col-meta { width: 150px; }
-        
-        /* 任务日志区 */
-        .log-box { font-family: 'Courier New', Courier, monospace; font-size: 12px; }
+        .col-action { width: 90px; text-align: center; }
+        .col-file { width: 220px; }
+        .log-box { font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.4; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 h-screen flex flex-col">
@@ -32,32 +27,15 @@
                 <h1 class="text-2xl font-bold text-indigo-600 flex items-center gap-2">
                     <i class="fa-solid fa-music"></i> 音乐管家
                 </h1>
-                
-                <div class="flex gap-4">
-                    <button @click="currentTab = 'manager'" 
-                        :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'manager', 'text-gray-500': currentTab !== 'manager'}"
-                        class="px-4 py-2 font-medium transition flex items-center gap-2">
-                        <i class="fa-solid fa-folder-open"></i> 文件管理
-                    </button>
-                    <button @click="currentTab = 'tasks'" 
-                        :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'tasks', 'text-gray-500': currentTab !== 'tasks'}"
-                        class="px-4 py-2 font-medium transition flex items-center gap-2">
-                        <i class="fa-solid fa-clock"></i> 计划任务
-                    </button>
-                    <button @click="currentTab = 'dedupe'" 
-                        :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'dedupe', 'text-gray-500': currentTab !== 'dedupe'}"
-                        class="px-4 py-2 font-medium transition flex items-center gap-2">
-                        <i class="fa-solid fa-clone"></i> AI 去重
-                    </button>
+                <div class="flex gap-2 bg-gray-100 p-1 rounded-lg">
+                    <button @click="currentTab = 'manager'" :class="{'bg-white text-indigo-600 shadow-sm': currentTab === 'manager', 'text-gray-500 hover:text-gray-700': currentTab !== 'manager'}" class="px-4 py-2 rounded-md font-medium transition flex items-center gap-2 text-sm"><i class="fa-solid fa-folder-open"></i> 文件管理</button>
+                    <button @click="currentTab = 'tasks'" :class="{'bg-white text-indigo-600 shadow-sm': currentTab === 'tasks', 'text-gray-500 hover:text-gray-700': currentTab !== 'tasks'}" class="px-4 py-2 rounded-md font-medium transition flex items-center gap-2 text-sm"><i class="fa-solid fa-clock"></i> 计划任务</button>
+                    <button @click="currentTab = 'dedupe'" :class="{'bg-white text-indigo-600 shadow-sm': currentTab === 'dedupe', 'text-gray-500 hover:text-gray-700': currentTab !== 'dedupe'}" class="px-4 py-2 rounded-md font-medium transition flex items-center gap-2 text-sm"><i class="fa-solid fa-clone"></i> AI 去重</button>
                 </div>
-
-                <div class="text-sm flex items-center gap-2">
-                    <span v-if="config.has_key" class="text-green-600 font-bold flex items-center gap-1">
-                        <i class="fa-solid fa-check-circle"></i> {{ config.model_name }}
-                    </span>
-                    <span v-else class="text-red-500 flex items-center gap-1">
-                        <i class="fa-solid fa-exclamation-triangle"></i> 未配置 API
-                    </span>
+                <div class="text-sm flex items-center gap-3">
+                    <div v-if="isBusy" class="flex items-center gap-2 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-xs font-bold animate-pulse"><i class="fa-solid fa-circle-notch loading-spin"></i> 处理中...</div>
+                    <span v-if="config.has_key" class="text-green-600 font-bold flex items-center gap-1"><i class="fa-solid fa-check-circle"></i> {{ config.model_name }}</span>
+                    <span v-else class="text-red-500 flex items-center gap-1"><i class="fa-solid fa-exclamation-triangle"></i> 未配置 API</span>
                 </div>
             </div>
         </header>
@@ -65,165 +43,219 @@
         <main class="flex-1 overflow-hidden container mx-auto p-4 sm:p-6">
             
             <div v-if="currentTab === 'manager'" class="h-full flex gap-4">
-                <div class="w-72 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden shrink-0">
+                <div class="w-72 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden shrink-0 border border-gray-200">
                     <div class="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm flex justify-between items-center">
-                        <span class="truncate pr-2" :title="currentNavPath || '根目录'"><i class="fa-solid fa-folder-tree mr-1"></i> {{ currentNavPathName }}</span>
+                        <span class="truncate pr-2 text-xs font-mono" :title="currentNavPath || '根目录'"><i class="fa-solid fa-folder-tree mr-1 text-indigo-500"></i> {{ currentNavPathName }}</span>
                         <div class="flex gap-1">
                             <button v-if="!isNavRoot" @click="fetchDirs(parentNavPath)" class="text-gray-500 hover:text-indigo-600 p-1"><i class="fa-solid fa-level-up-alt"></i></button>
                             <button @click="fetchDirs(currentNavPath)" class="text-gray-500 hover:text-indigo-600 p-1"><i class="fa-solid fa-sync"></i></button>
                         </div>
                     </div>
                     <div class="flex-1 overflow-y-auto p-2 text-sm">
-                        <div @click="selectFolder('')" class="cursor-pointer px-3 py-2 rounded mb-1 flex justify-between items-center hover:bg-gray-100 transition" :class="{'bg-indigo-50 text-indigo-700 font-bold': currentFolder === ''}">
-                            <span><i class="fa-solid fa-music mr-2 text-gray-400"></i> 全部已加载</span>
-                            <span class="text-xs bg-gray-200 px-1.5 rounded-full text-gray-600">{{ allFiles.length }}</span>
-                        </div>
+                        <div @click="selectFolder('')" class="cursor-pointer px-3 py-2 rounded mb-1 flex justify-between items-center hover:bg-gray-100 transition" :class="{'bg-indigo-50 text-indigo-700 font-bold': currentFolder === ''}"><span><i class="fa-solid fa-music mr-2 text-gray-400"></i> 全部已加载</span><span class="text-xs bg-gray-200 px-2 py-0.5 rounded-full text-gray-600">{{ allFiles.length }}</span></div>
                         <hr class="my-2 border-gray-100">
-                        <div v-if="subDirs.length === 0" class="text-center text-gray-400 py-4 italic text-xs">此目录下无子文件夹</div>
                         <div v-for="dir in subDirs" :key="dir.path" class="group flex items-center justify-between px-3 py-2 rounded mb-1 hover:bg-gray-100 transition" :class="{'bg-indigo-50': filterFolder === dir.path}">
                             <div @click="fetchDirs(dir.path)" class="flex-1 cursor-pointer truncate mr-2 text-gray-700 hover:text-indigo-700 select-none"><i class="fa-regular fa-folder mr-2 text-yellow-500"></i> {{ dir.name }}</div>
-                            <button @click.stop="scanFolder(dir.path)" :disabled="isBusy" title="扫描此文件夹" class="text-gray-300 hover:text-blue-600 p-1 rounded transition-colors"><i class="fa-solid fa-magnifying-glass" :class="{'text-blue-500 loading-spin': isScanningPath === dir.path}"></i></button>
+                            <button @click.stop="scanFolder(dir.path)" :disabled="isBusy" class="text-gray-300 hover:text-blue-600 p-1 rounded"><i class="fa-solid fa-magnifying-glass" :class="{'text-blue-500 loading-spin': isScanningPath === dir.path}"></i></button>
                         </div>
                     </div>
-                    <div v-if="isBusy" class="p-2 bg-blue-50 text-xs text-blue-700 border-t flex items-center gap-2"><i class="fa-solid fa-circle-notch loading-spin"></i> <span class="truncate">{{ status.message }}</span></div>
                 </div>
-                <div class="flex-1 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden min-w-0">
-                    <div class="p-4 border-b flex gap-3 items-center flex-wrap">
-                        <div class="relative flex-1 min-w-[200px]"><i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-xs"></i><input type="text" v-model="fileSearch" placeholder="搜索文件名、歌手..." class="w-full border p-2 pl-8 rounded text-sm focus:outline-none focus:border-indigo-500"></div>
-                        <select v-model.number="pageSize" @change="currentPage = 1" class="border p-2 rounded text-sm w-28 bg-white focus:outline-none"><option :value="50">50条/页</option><option :value="100">100条/页</option><option :value="300">300条/页</option><option :value="500">500条/页</option></select>
-                        <button @click="refreshFiles" class="bg-gray-100 px-3 py-2 rounded hover:bg-gray-200 text-gray-600 transition"><i class="fa-solid fa-sync"></i></button>
+                <div class="flex-1 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden min-w-0 border border-gray-200">
+                    <div class="p-3 border-b flex gap-2 items-center flex-wrap bg-gray-50">
+                        <div class="relative flex-1 min-w-[200px]"><i class="fa-solid fa-search absolute left-3 top-2.5 text-gray-400 text-xs"></i><input type="text" v-model="fileSearch" placeholder="搜索文件名..." class="w-full border border-gray-300 p-1.5 pl-8 rounded text-sm focus:outline-none focus:border-indigo-500"></div>
+                        <select v-model.number="pageSize" @change="currentPage = 1" class="border border-gray-300 p-1.5 rounded text-sm w-20 bg-white focus:outline-none"><option :value="50">50</option><option :value="100">100</option><option :value="300">300</option><option :value="500">500</option></select>
+                        <button @click="refreshFiles" class="bg-white border border-gray-300 px-3 py-1.5 rounded hover:bg-gray-50 text-gray-600 transition"><i class="fa-solid fa-sync"></i></button>
                     </div>
                     <div class="flex-1 overflow-y-auto">
                         <table class="w-full text-sm text-left table-fixed border-collapse">
-                            <thead class="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-600 text-xs uppercase tracking-wider">
-                                <tr><th class="p-2 col-checkbox border-b"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected" class="rounded"></th><th class="p-2 col-action border-b">操作</th><th class="p-2 col-file border-b">文件名</th><th class="p-2 border-b">标题</th><th class="p-2 border-b">艺术家</th><th class="p-2 border-b">专辑</th><th class="p-2 border-b">专辑艺术家</th></tr>
+                            <thead class="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-600 text-xs uppercase tracking-wider font-semibold">
+                                <tr><th class="p-2 col-checkbox border-b border-gray-200 text-center"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected" class="rounded"></th><th class="p-2 col-action border-b border-gray-200">操作</th><th class="p-2 col-file border-b border-gray-200">文件名</th><th class="p-2 border-b border-gray-200">标题</th><th class="p-2 border-b border-gray-200">艺术家</th><th class="p-2 border-b border-gray-200">专辑</th><th class="p-2 border-b border-gray-200">专辑艺术家</th></tr>
                             </thead>
-                            <tbody class="divide-y divide-gray-100">
-                                <tr v-for="file in paginatedFiles" :key="file.path" class="group transition-colors">
-                                    <td class="p-2 text-center bg-inherit"><input type="checkbox" :value="file.path" v-model="managerSelection" class="rounded"></td>
-                                    <td class="p-2 flex justify-center gap-3 bg-inherit"><button @click="fixSingleAI(file)" class="text-indigo-400 hover:text-indigo-600 disabled:opacity-30 transition"><i class="fa-solid fa-wand-magic-sparkles" :class="{'loading-spin': loadingFiles[file.path]}"></i></button><button @click="deleteOne(file)" class="text-gray-400 hover:text-red-600 transition"><i class="fa-solid fa-trash-alt"></i></button></td>
-                                    <td class="p-2 truncate font-medium text-gray-700" :title="file.filename">{{ file.filename }}</td>
-                                    <td class="p-2 truncate text-gray-500" :title="file.title">{{ file.title }}</td><td class="p-2 truncate text-gray-500" :title="file.artist">{{ file.artist }}</td><td class="p-2 truncate text-gray-500" :title="file.album">{{ file.album }}</td><td class="p-2 truncate text-gray-500" :title="file.album_artist">{{ file.album_artist }}</td>
+                            <tbody class="divide-y divide-gray-100 bg-white">
+                                <tr v-for="file in paginatedFiles" :key="file.path" class="group hover:bg-blue-50 transition-colors">
+                                    <td class="p-2 text-center"><input type="checkbox" :value="file.path" v-model="managerSelection" class="rounded"></td>
+                                    <td class="p-2 flex justify-center gap-2"><button @click="fixSingleAI(file)" class="w-7 h-7 flex items-center justify-center rounded-full bg-indigo-50 text-indigo-500 hover:bg-indigo-600 hover:text-white transition disabled:opacity-30"><i class="fa-solid fa-wand-magic-sparkles" :class="{'loading-spin': loadingFiles[file.path]}"></i></button><button @click="deleteOne(file)" class="w-7 h-7 flex items-center justify-center rounded-full bg-red-50 text-red-500 hover:bg-red-600 hover:text-white transition"><i class="fa-solid fa-trash-alt"></i></button></td>
+                                    <td class="p-2 truncate font-medium text-gray-700" :title="file.filename">{{ file.filename }}</td><td class="p-2 truncate text-gray-500" :title="file.title">{{ file.title }}</td><td class="p-2 truncate text-gray-500" :title="file.artist">{{ file.artist }}</td><td class="p-2 truncate text-gray-500" :title="file.album">{{ file.album }}</td><td class="p-2 truncate text-gray-500" :title="file.album_artist">{{ file.album_artist }}</td>
                                 </tr>
                             </tbody>
                         </table>
-                        <div v-if="allFiles.length === 0" class="flex flex-col items-center justify-center h-64 text-gray-400"><i class="fa-solid fa-music text-4xl mb-4 text-gray-200"></i><p class="mb-2">列表为空</p><p class="text-xs">请点击左侧文件夹旁的 <i class="fa-solid fa-magnifying-glass text-blue-500"></i> 图标加载文件</p></div>
                     </div>
-                    <div class="p-2 bg-gray-50 text-xs text-gray-500 border-t flex justify-between items-center shrink-0">
-                        <div>显示 {{ paginatedFiles.length }} / {{ filteredFiles.length }} (总 {{ allFiles.length }}) | 已选 <span class="font-bold text-indigo-600">{{ managerSelection.length }}</span></div>
-                        <div class="flex gap-2 items-center" v-if="totalPages > 1"><button @click="currentPage--" :disabled="currentPage === 1" class="px-2 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50"><i class="fa-solid fa-chevron-left"></i></button><span class="min-w-[3rem] text-center">{{ currentPage }} / {{ totalPages }}</span><button @click="currentPage++" :disabled="currentPage === totalPages" class="px-2 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50"><i class="fa-solid fa-chevron-right"></i></button></div>
-                    </div>
+                    <div class="p-2 bg-gray-50 text-xs text-gray-500 border-t flex justify-between items-center shrink-0"><div>显示 {{ paginatedFiles.length }} / {{ filteredFiles.length }} | 已选 <span class="font-bold text-indigo-600">{{ managerSelection.length }}</span></div><div class="flex gap-2 items-center" v-if="totalPages > 1"><button @click="currentPage--" :disabled="currentPage === 1" class="w-6 h-6 flex items-center justify-center bg-white border rounded hover:bg-gray-100 disabled:opacity-50"><i class="fa-solid fa-chevron-left"></i></button><span class="min-w-[3rem] text-center font-mono">{{ currentPage }} / {{ totalPages }}</span><button @click="currentPage++" :disabled="currentPage === totalPages" class="w-6 h-6 flex items-center justify-center bg-white border rounded hover:bg-gray-100 disabled:opacity-50"><i class="fa-solid fa-chevron-right"></i></button></div></div>
                 </div>
                 <div class="w-72 flex flex-col gap-4 overflow-y-auto shrink-0 pb-4">
-                    <div v-if="managerSelection.length > 0" class="bg-red-50 p-4 rounded-lg border border-red-100 shadow-sm animate-pulse"><h3 class="font-bold text-red-700 mb-2 flex items-center gap-2 text-sm"><i class="fa-solid fa-trash-can"></i> 危险操作</h3><button @click="deleteManagerSelection" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 text-sm shadow transition">删除选中的 {{ managerSelection.length }} 个文件</button></div>
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2 text-sm"><i class="fa-solid fa-tags text-indigo-500"></i> 批量修改标签</h3><div class="space-y-3"><div><label class="text-xs text-gray-400 mb-1 block">艺术家 (Artist)</label><input type="text" v-model="metaEdit.artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><div><label class="text-xs text-gray-400 mb-1 block">专辑艺术家 (Album Artist)</label><input type="text" v-model="metaEdit.album_artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><div><label class="text-xs text-gray-400 mb-1 block">标题 (Title)</label><input type="text" v-model="metaEdit.title" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><div><label class="text-xs text-gray-400 mb-1 block">专辑 (Album)</label><input type="text" v-model="metaEdit.album" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><button @click="applyMetadata" :disabled="managerSelection.length === 0" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 disabled:opacity-50 disabled:bg-gray-400 text-sm transition mt-1">应用修改</button></div></div>
-                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2 text-sm"><i class="fa-solid fa-i-cursor text-blue-500"></i> 批量重命名</h3><div class="space-y-3"><div><label class="text-xs text-gray-400 mb-1 block">命名模式</label><input type="text" v-model="renamePattern" class="w-full border p-2 rounded text-sm font-mono text-xs focus:border-blue-500 focus:outline-none"><div class="flex gap-1 mt-2 flex-wrap"><button @click="renamePattern += '{artist}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{artist}</button><button @click="renamePattern += '{album_artist}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{album_artist}</button><button @click="renamePattern += '{title}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{title}</button><button @click="renamePattern += '{album}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{album}</button></div></div><div class="text-xs text-gray-500 bg-gray-50 p-2 rounded border break-all"><span class="font-bold">预览:</span> <span class="font-mono text-blue-600">{{ previewRename }}</span>.mp3</div><button @click="applyRename" :disabled="managerSelection.length === 0" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 text-sm transition">开始重命名</button></div></div>
+                    <div v-if="managerSelection.length > 0" class="bg-red-50 p-4 rounded-lg border border-red-200 shadow-sm animate-bounce"><h3 class="font-bold text-red-700 mb-2 flex items-center gap-2 text-sm"><i class="fa-solid fa-triangle-exclamation"></i> 危险操作区域</h3><button @click="deleteManagerSelection" class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 text-sm shadow transition font-bold"><i class="fa-solid fa-trash-can mr-1"></i> 确认删除 {{ managerSelection.length }} 个文件</button></div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2 text-sm pb-2 border-b"><i class="fa-solid fa-tags text-indigo-500"></i> 批量修改标签</h3><div class="space-y-3"><div class="relative"><label class="text-[10px] uppercase text-gray-400 font-bold mb-0.5 block">Artist</label><input type="text" v-model="metaEdit.artist" placeholder="保持原样" class="w-full border border-gray-300 p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><div class="relative"><label class="text-[10px] uppercase text-gray-400 font-bold mb-0.5 block">Album Artist</label><input type="text" v-model="metaEdit.album_artist" placeholder="保持原样" class="w-full border border-gray-300 p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><div class="relative"><label class="text-[10px] uppercase text-gray-400 font-bold mb-0.5 block">Title</label><input type="text" v-model="metaEdit.title" placeholder="保持原样" class="w-full border border-gray-300 p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><div class="relative"><label class="text-[10px] uppercase text-gray-400 font-bold mb-0.5 block">Album</label><input type="text" v-model="metaEdit.album" placeholder="保持原样" class="w-full border border-gray-300 p-2 rounded text-sm focus:border-indigo-500 focus:outline-none"></div><button @click="applyMetadata" :disabled="managerSelection.length === 0" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 disabled:opacity-50 disabled:bg-gray-400 text-sm transition mt-1 shadow-sm font-medium">应用修改</button></div></div>
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-200"><h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2 text-sm pb-2 border-b"><i class="fa-solid fa-i-cursor text-blue-500"></i> 批量重命名</h3><div class="space-y-3"><div><label class="text-[10px] uppercase text-gray-400 font-bold mb-0.5 block">Pattern</label><input type="text" v-model="renamePattern" class="w-full border border-gray-300 p-2 rounded text-sm font-mono text-xs focus:border-blue-500 focus:outline-none"><div class="flex gap-1.5 mt-2 flex-wrap"><button @click="renamePattern += '{artist}'" class="px-2 py-1 bg-gray-100 rounded text-[10px] hover:bg-gray-200 border text-gray-600">{artist}</button><button @click="renamePattern += '{album_artist}'" class="px-2 py-1 bg-gray-100 rounded text-[10px] hover:bg-gray-200 border text-gray-600">{album_artist}</button><button @click="renamePattern += '{title}'" class="px-2 py-1 bg-gray-100 rounded text-[10px] hover:bg-gray-200 border text-gray-600">{title}</button></div></div><div class="text-xs text-gray-500 bg-blue-50 p-2 rounded border border-blue-100 break-all"><span class="font-bold text-blue-800">预览:</span> <span class="font-mono text-blue-600">{{ previewRename }}</span>.mp3</div><button @click="applyRename" :disabled="managerSelection.length === 0" class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 text-sm transition shadow-sm font-medium">开始重命名</button></div></div>
                 </div>
             </div>
 
-            <div v-else-if="currentTab === 'tasks'" class="h-full flex gap-4">
-                <div class="flex-1 overflow-y-auto">
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-                        <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-center gap-2">
-                                    <div class="p-2 bg-blue-100 text-blue-600 rounded"><i class="fa-solid fa-volume-high"></i></div>
-                                    <div><h3 class="font-bold">音质去重</h3><p class="text-xs text-gray-500">同文件夹下同名文件，保留最高音质(Flac>Mp3)</p></div>
+            <div v-else-if="currentTab === 'tasks'" class="h-full flex gap-6">
+                <div class="flex-1 overflow-y-auto pr-2">
+                    
+                    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-5 mb-6 shadow-sm">
+                        <h2 class="font-bold text-indigo-800 mb-3 flex items-center gap-2">
+                            <i class="fa-solid fa-crosshairs"></i> 计划任务作用域
+                        </h2>
+                        <div class="flex gap-3 items-end">
+                            <div class="flex-1">
+                                <label class="text-xs text-indigo-600 mb-1 block font-bold">目标文件夹 (所有自动任务将仅在此文件夹下执行)</label>
+                                <div class="relative">
+                                    <input type="text" v-model="taskTargetFolder" class="w-full border border-indigo-200 p-2.5 pl-3 rounded text-sm bg-white font-mono text-gray-600" readonly>
+                                    <div class="absolute right-0 top-0 bottom-0 flex items-center pr-2">
+                                        <div class="text-xs bg-indigo-100 text-indigo-600 px-2 py-1 rounded cursor-pointer hover:bg-indigo-200" @click="showFolderSelector = !showFolderSelector">
+                                            选择...
+                                        </div>
+                                    </div>
                                 </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" v-model="taskConfig.dedupe_quality.enabled" class="sr-only peer">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                                </label>
+                                <div v-if="showFolderSelector" class="mt-2 bg-white border rounded shadow-lg max-h-48 overflow-y-auto absolute z-20 w-1/2">
+                                    <div @click="selectTaskFolder(config.music_dir)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm font-bold text-indigo-600 border-b">
+                                        / (根目录)
+                                    </div>
+                                    <div v-for="dir in folderSelectorList" :key="dir.path" @click="selectTaskFolder(dir.path)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700 border-b border-gray-50 flex items-center">
+                                        <i class="fa-regular fa-folder mr-2 text-yellow-500"></i> {{ dir.name }}
+                                    </div>
+                                </div>
                             </div>
-                            <div class="mt-4 flex gap-2 items-center">
-                                <span class="text-sm font-mono text-gray-500">Cron:</span>
-                                <input type="text" v-model="taskConfig.dedupe_quality.cron" class="border p-1 rounded text-sm w-32 font-mono" placeholder="0 2 * * *">
-                                <button @click="runTask('dedupe_quality')" class="ml-auto bg-blue-50 text-blue-600 text-xs px-3 py-1.5 rounded hover:bg-blue-100"><i class="fa-solid fa-play"></i> 立即执行</button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-200 hover:border-blue-300 transition-colors relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-16 h-16 bg-blue-50 rounded-bl-full -mr-8 -mt-8 z-0"></div>
+                            <div class="relative z-10">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-blue-100 text-blue-600 rounded-lg flex items-center justify-center text-lg"><i class="fa-solid fa-volume-high"></i></div>
+                                        <div><h3 class="font-bold text-gray-800">音质去重</h3><p class="text-xs text-gray-500">保留高质量文件</p></div>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="taskConfig.dedupe_quality.enabled" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                                    </label>
+                                </div>
+                                <div class="bg-gray-50 p-3 rounded-lg flex gap-2 items-center mb-3 border border-gray-100">
+                                    <span class="text-xs font-mono text-gray-500 bg-white border px-1.5 rounded">Cron</span>
+                                    <input type="text" v-model="taskConfig.dedupe_quality.cron" class="bg-transparent border-b border-dashed border-gray-300 text-sm w-full font-mono focus:outline-none focus:border-blue-500" placeholder="0 2 * * *">
+                                </div>
+                                <div class="flex justify-between items-center mt-4">
+                                    <div class="text-xs text-gray-400">上次: {{ taskConfig.dedupe_quality.last_run || '从未运行' }}</div>
+                                    <button @click="runTask('dedupe_quality')" class="bg-white border border-blue-200 text-blue-600 text-xs px-3 py-1.5 rounded-full hover:bg-blue-50 hover:border-blue-300 transition flex items-center gap-1">
+                                        <i class="fa-solid fa-play"></i> 立即执行
+                                    </button>
+                                </div>
                             </div>
-                            <div class="mt-2 text-xs text-gray-400">上次运行: {{ taskConfig.dedupe_quality.last_run || '从未' }}</div>
                         </div>
 
-                        <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-center gap-2">
-                                    <div class="p-2 bg-yellow-100 text-yellow-600 rounded"><i class="fa-solid fa-scissors"></i></div>
-                                    <div><h3 class="font-bold">短音频清理</h3><p class="text-xs text-gray-500">删除时长小于指定秒数的音频</p></div>
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-200 hover:border-yellow-300 transition-colors relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-16 h-16 bg-yellow-50 rounded-bl-full -mr-8 -mt-8 z-0"></div>
+                            <div class="relative z-10">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-yellow-100 text-yellow-600 rounded-lg flex items-center justify-center text-lg"><i class="fa-solid fa-scissors"></i></div>
+                                        <div><h3 class="font-bold text-gray-800">短音频清理</h3><p class="text-xs text-gray-500">删除过短片段</p></div>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="taskConfig.clean_short.enabled" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
+                                    </label>
                                 </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" v-model="taskConfig.clean_short.enabled" class="sr-only peer">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-yellow-500"></div>
-                                </label>
+                                <div class="bg-gray-50 p-3 rounded-lg flex gap-3 items-center mb-3 border border-gray-100 flex-wrap">
+                                    <div class="flex items-center gap-2 flex-1">
+                                        <span class="text-xs font-mono text-gray-500 bg-white border px-1.5 rounded">Cron</span>
+                                        <input type="text" v-model="taskConfig.clean_short.cron" class="bg-transparent border-b border-dashed border-gray-300 text-sm w-full font-mono focus:outline-none focus:border-yellow-500">
+                                    </div>
+                                    <div class="flex items-center gap-1 w-24">
+                                        <span class="text-xs text-gray-500">秒&lt;</span>
+                                        <input type="number" v-model.number="taskConfig.clean_short.min_duration" class="bg-white border p-1 rounded text-sm w-full h-6">
+                                    </div>
+                                </div>
+                                <div class="flex justify-between items-center mt-4">
+                                    <div class="text-xs text-gray-400">上次: {{ taskConfig.clean_short.last_run || '从未运行' }}</div>
+                                    <button @click="runTask('clean_short')" class="bg-white border border-yellow-200 text-yellow-600 text-xs px-3 py-1.5 rounded-full hover:bg-yellow-50 hover:border-yellow-300 transition flex items-center gap-1">
+                                        <i class="fa-solid fa-play"></i> 立即执行
+                                    </button>
+                                </div>
                             </div>
-                            <div class="mt-4 flex gap-2 items-center">
-                                <span class="text-sm font-mono text-gray-500">Cron:</span>
-                                <input type="text" v-model="taskConfig.clean_short.cron" class="border p-1 rounded text-sm w-28 font-mono">
-                                <span class="text-xs">阈值(秒):</span>
-                                <input type="number" v-model.number="taskConfig.clean_short.min_duration" class="border p-1 rounded text-sm w-16">
-                                <button @click="runTask('clean_short')" class="ml-auto bg-yellow-50 text-yellow-600 text-xs px-3 py-1.5 rounded hover:bg-yellow-100"><i class="fa-solid fa-play"></i> 立即执行</button>
-                            </div>
-                            <div class="mt-2 text-xs text-gray-400">上次运行: {{ taskConfig.clean_short.last_run || '从未' }}</div>
                         </div>
 
-                        <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-center gap-2">
-                                    <div class="p-2 bg-green-100 text-green-600 rounded"><i class="fa-solid fa-file-invoice"></i></div>
-                                    <div><h3 class="font-bold">元数据提取</h3><p class="text-xs text-gray-500">生成 NFO (Emby) 及提取封面图</p></div>
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-200 hover:border-green-300 transition-colors relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-16 h-16 bg-green-50 rounded-bl-full -mr-8 -mt-8 z-0"></div>
+                            <div class="relative z-10">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-green-100 text-green-600 rounded-lg flex items-center justify-center text-lg"><i class="fa-solid fa-file-invoice"></i></div>
+                                        <div><h3 class="font-bold text-gray-800">元数据提取</h3><p class="text-xs text-gray-500">生成 NFO & 封面</p></div>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="taskConfig.extract_meta.enabled" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
+                                    </label>
                                 </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" v-model="taskConfig.extract_meta.enabled" class="sr-only peer">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-green-600"></div>
-                                </label>
+                                <div class="bg-gray-50 p-3 rounded-lg flex gap-2 items-center mb-3 border border-gray-100">
+                                    <span class="text-xs font-mono text-gray-500 bg-white border px-1.5 rounded">Cron</span>
+                                    <input type="text" v-model="taskConfig.extract_meta.cron" class="bg-transparent border-b border-dashed border-gray-300 text-sm w-full font-mono focus:outline-none focus:border-green-500" placeholder="0 4 * * *">
+                                </div>
+                                <div class="flex justify-between items-center mt-4">
+                                    <div class="text-xs text-gray-400">上次: {{ taskConfig.extract_meta.last_run || '从未运行' }}</div>
+                                    <button @click="runTask('extract_meta')" class="bg-white border border-green-200 text-green-600 text-xs px-3 py-1.5 rounded-full hover:bg-green-50 hover:border-green-300 transition flex items-center gap-1">
+                                        <i class="fa-solid fa-play"></i> 立即执行
+                                    </button>
+                                </div>
                             </div>
-                            <div class="mt-4 flex gap-2 items-center">
-                                <span class="text-sm font-mono text-gray-500">Cron:</span>
-                                <input type="text" v-model="taskConfig.extract_meta.cron" class="border p-1 rounded text-sm w-32 font-mono">
-                                <button @click="runTask('extract_meta')" class="ml-auto bg-green-50 text-green-600 text-xs px-3 py-1.5 rounded hover:bg-green-100"><i class="fa-solid fa-play"></i> 立即执行</button>
-                            </div>
-                            <div class="mt-2 text-xs text-gray-400">上次运行: {{ taskConfig.extract_meta.last_run || '从未' }}</div>
                         </div>
 
-                        <div class="bg-white rounded-lg shadow-sm p-5 border border-gray-200">
-                            <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-center gap-2">
-                                    <div class="p-2 bg-red-100 text-red-600 rounded"><i class="fa-solid fa-broom"></i></div>
-                                    <div><h3 class="font-bold">冗余垃圾清理</h3><p class="text-xs text-gray-500">清理无音乐目录下的 nfo/jpg/png 文件</p></div>
+                        <div class="bg-white rounded-xl shadow-sm p-6 border border-gray-200 hover:border-red-300 transition-colors relative overflow-hidden">
+                            <div class="absolute top-0 right-0 w-16 h-16 bg-red-50 rounded-bl-full -mr-8 -mt-8 z-0"></div>
+                            <div class="relative z-10">
+                                <div class="flex justify-between items-start mb-4">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-10 h-10 bg-red-100 text-red-600 rounded-lg flex items-center justify-center text-lg"><i class="fa-solid fa-broom"></i></div>
+                                        <div><h3 class="font-bold text-gray-800">垃圾清理</h3><p class="text-xs text-gray-500">清理无用文件</p></div>
+                                    </div>
+                                    <label class="relative inline-flex items-center cursor-pointer">
+                                        <input type="checkbox" v-model="taskConfig.clean_junk.enabled" class="sr-only peer">
+                                        <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
+                                    </label>
                                 </div>
-                                <label class="relative inline-flex items-center cursor-pointer">
-                                    <input type="checkbox" v-model="taskConfig.clean_junk.enabled" class="sr-only peer">
-                                    <div class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
-                                </label>
+                                <div class="bg-gray-50 p-3 rounded-lg flex gap-2 items-center mb-3 border border-gray-100">
+                                    <span class="text-xs font-mono text-gray-500 bg-white border px-1.5 rounded">Cron</span>
+                                    <input type="text" v-model="taskConfig.clean_junk.cron" class="bg-transparent border-b border-dashed border-gray-300 text-sm w-full font-mono focus:outline-none focus:border-red-500" placeholder="0 5 * * *">
+                                </div>
+                                <div class="flex justify-between items-center mt-4">
+                                    <div class="text-xs text-gray-400">上次: {{ taskConfig.clean_junk.last_run || '从未运行' }}</div>
+                                    <button @click="runTask('clean_junk')" class="bg-white border border-red-200 text-red-600 text-xs px-3 py-1.5 rounded-full hover:bg-red-50 hover:border-red-300 transition flex items-center gap-1">
+                                        <i class="fa-solid fa-play"></i> 立即执行
+                                    </button>
+                                </div>
                             </div>
-                            <div class="mt-4 flex gap-2 items-center">
-                                <span class="text-sm font-mono text-gray-500">Cron:</span>
-                                <input type="text" v-model="taskConfig.clean_junk.cron" class="border p-1 rounded text-sm w-32 font-mono">
-                                <button @click="runTask('clean_junk')" class="ml-auto bg-red-50 text-red-600 text-xs px-3 py-1.5 rounded hover:bg-red-100"><i class="fa-solid fa-play"></i> 立即执行</button>
-                            </div>
-                            <div class="mt-2 text-xs text-gray-400">上次运行: {{ taskConfig.clean_junk.last_run || '从未' }}</div>
                         </div>
                     </div>
                     
-                    <div class="flex justify-end mb-4">
-                        <button @click="saveTasksConfig" class="bg-indigo-600 text-white px-6 py-2 rounded shadow hover:bg-indigo-700 transition"><i class="fa-solid fa-save"></i> 保存计划设置</button>
+                    <div class="flex justify-end mb-6">
+                        <button @click="saveTasksConfig" class="bg-indigo-600 text-white px-6 py-2.5 rounded-lg shadow-md hover:bg-indigo-700 transition flex items-center gap-2 font-bold">
+                            <i class="fa-solid fa-save"></i> 保存计划任务设置
+                        </button>
                     </div>
                 </div>
 
-                <div class="w-96 bg-gray-900 rounded-lg shadow-sm flex flex-col overflow-hidden shrink-0 text-gray-300">
+                <div class="w-80 bg-gray-900 rounded-lg shadow-lg flex flex-col overflow-hidden shrink-0 text-gray-300 border border-gray-800">
                     <div class="p-3 border-b border-gray-700 bg-gray-800 text-sm font-bold flex justify-between items-center">
-                        <span><i class="fa-solid fa-terminal mr-2"></i> 运行日志</span>
-                        <button @click="fetchLogs" class="text-gray-400 hover:text-white"><i class="fa-solid fa-sync"></i></button>
+                        <span><i class="fa-solid fa-terminal mr-2 text-green-500"></i> 系统日志</span>
+                        <button @click="fetchLogs" class="text-gray-400 hover:text-white transition"><i class="fa-solid fa-sync"></i></button>
                     </div>
-                    <div class="flex-1 overflow-y-auto p-3 log-box">
-                        <div v-for="(log, i) in taskLogs" :key="i" class="mb-1 border-b border-gray-800 pb-1">
-                            {{ log }}
+                    <div class="flex-1 overflow-y-auto p-3 log-box bg-[#0d1117]">
+                        <div v-for="(log, i) in taskLogs" :key="i" class="mb-1.5 border-b border-gray-800 pb-1 hover:text-white transition-colors">
+                            <span class="text-green-600 mr-1">></span> {{ log }}
                         </div>
-                        <div v-if="taskLogs.length === 0" class="text-center text-gray-600 mt-10">暂无日志</div>
+                        <div v-if="taskLogs.length === 0" class="text-center text-gray-600 mt-10 text-xs">
+                            暂无运行日志<br>点击“立即执行”开始任务
+                        </div>
                     </div>
                 </div>
             </div>
 
             <div v-else class="h-full overflow-y-auto pr-2">
-               <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6"><div class="bg-white p-5 rounded-lg shadow-sm"><h2 class="font-bold mb-3 text-gray-700">配置</h2><div class="space-y-3"><input type="password" v-model="form.apiKey" placeholder="Gemini API Key" class="w-full border p-2 rounded text-sm"><button @click="saveConfig" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 text-sm">保存配置</button></div></div><div class="bg-white p-5 rounded-lg shadow-sm flex flex-col justify-between"><div><h2 class="font-bold mb-3 text-gray-700">任务控制</h2><p class="text-sm text-gray-500 mb-4">{{ status.message }}</p><div v-if="isBusy" class="w-full bg-gray-200 rounded-full h-2 mb-4"><div class="bg-blue-600 h-2 rounded-full transition-all" :style="{ width: progressPercent + '%' }"></div></div></div><div class="flex gap-3"><button @click="startScanAll" :disabled="isBusy" class="flex-1 bg-blue-500 text-white py-3 rounded hover:bg-blue-600 disabled:opacity-50">全量扫描</button><button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="flex-1 bg-purple-500 text-white py-3 rounded hover:bg-purple-600 disabled:opacity-50">AI 分析</button></div></div></div><div v-if="results.length > 0" class="bg-white rounded-lg shadow-sm p-6"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">{{ isAiResult ? 'AI 分析结果' : '疑似重复' }} ({{ results.length }} 组)</h3><button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">删除选中</button></div><div v-for="(group, idx) in results" :key="idx" class="border rounded mb-4 p-4 bg-gray-50"><div class="text-sm text-yellow-700 bg-yellow-100 p-2 rounded mb-2"><i class="fa-solid fa-lightbulb"></i> {{ group.reason }}</div><div class="space-y-1"><div v-for="file in group.files" :key="file.path" @click="toggleSelect(file.path)" class="flex items-center gap-3 p-2 bg-white border rounded cursor-pointer" :class="{'ring-2 ring-red-500 border-red-500': isSelected(file.path)}"><i :class="isSelected(file.path) ? 'fa-regular fa-square-check text-red-500' : 'fa-regular fa-square text-gray-300'"></i><div class="text-sm overflow-hidden"><div class="font-bold">{{ file.filename }}</div><div class="text-gray-500 text-xs">{{ file.size_mb }}MB | {{ file.path }}</div></div></div></div></div></div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6"><div class="bg-white p-5 rounded-lg shadow-sm"><h2 class="font-bold mb-3 text-gray-700">配置</h2><div class="space-y-3"><input type="password" v-model="form.apiKey" placeholder="Gemini API Key" class="w-full border p-2 rounded text-sm"><button @click="saveConfig" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 text-sm">保存配置</button></div></div><div class="bg-white p-5 rounded-lg shadow-sm flex flex-col justify-between"><div><h2 class="font-bold mb-3 text-gray-700">任务控制</h2><p class="text-sm text-gray-500 mb-4">{{ status.message }}</p><div v-if="isBusy" class="w-full bg-gray-200 rounded-full h-2 mb-4"><div class="bg-blue-600 h-2 rounded-full transition-all" :style="{ width: progressPercent + '%' }"></div></div></div><div class="flex gap-3"><button @click="startScanAll" :disabled="isBusy" class="flex-1 bg-blue-500 text-white py-3 rounded hover:bg-blue-600 disabled:opacity-50">全量扫描</button><button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="flex-1 bg-purple-500 text-white py-3 rounded hover:bg-purple-600 disabled:opacity-50">AI 分析</button></div></div></div><div v-if="results.length > 0" class="bg-white rounded-lg shadow-sm p-6"><div class="flex justify-between items-center mb-4"><h3 class="font-bold text-lg">{{ isAiResult ? 'AI 分析结果' : '疑似重复' }} ({{ results.length }} 组)</h3><button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">删除选中</button></div><div v-for="(group, idx) in results" :key="idx" class="border rounded mb-4 p-4 bg-gray-50"><div class="text-sm text-yellow-700 bg-yellow-100 p-2 rounded mb-2"><i class="fa-solid fa-lightbulb"></i> {{ group.reason }}</div><div class="space-y-1"><div v-for="file in group.files" :key="file.path" @click="toggleSelect(file.path)" class="flex items-center gap-3 p-2 bg-white border rounded cursor-pointer" :class="{'ring-2 ring-red-500 border-red-500': isSelected(file.path)}"><i :class="isSelected(file.path) ? 'fa-regular fa-square-check text-red-500' : 'fa-regular fa-square text-gray-300'"></i><div class="text-sm overflow-hidden"><div class="font-bold">{{ file.filename }}</div><div class="text-gray-500 text-xs">{{ file.size_mb }}MB | {{ file.path }}</div></div></div></div></div></div>
             </div>
 
         </main>
@@ -255,6 +287,9 @@
                         extract_meta: { enabled: false, cron: "0 4 * * *" },
                         clean_junk: { enabled: false, cron: "0 5 * * *" }
                     },
+                    taskTargetFolder: "", // 目标文件夹
+                    showFolderSelector: false,
+                    folderSelectorList: [],
                     taskLogs: [],
 
                     currentPage: 1, pageSize: 50, loadingFiles: {}, isScanningPath: null, pollInterval: null
@@ -289,17 +324,23 @@
             watch: {
                 currentTab(newVal) {
                     if (newVal === 'manager') { this.fetchDirs(); if (this.allFiles.length === 0) this.refreshFiles(); }
-                    if (newVal === 'tasks') { this.fetchLogs(); }
+                    if (newVal === 'tasks') { this.fetchLogs(); this.fetchFolderSelector(); }
                 },
                 fileSearch() { this.currentPage = 1; },
                 filterFolder() { this.currentPage = 1; }
             },
             mounted() {
-                this.pollStatus(); this.pollInterval = setInterval(() => { this.pollStatus(); if(this.currentTab === 'tasks') this.fetchLogs(); }, 2000); this.fetchDirs();
+                this.pollStatus(); 
+                this.pollInterval = setInterval(() => { 
+                    this.pollStatus(); 
+                    if(this.currentTab === 'tasks') this.fetchLogs(); 
+                }, 2000); 
+                this.fetchDirs();
             },
             methods: {
                 async saveConfig() { try { await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ api_key: this.form.apiKey, model_name: this.form.modelName, proxy_url: this.form.proxyUrl }) }); alert("配置已保存"); this.fetchModels(); } catch(e) { alert("Error"); } },
                 async fetchModels() { try { const res = await fetch('/api/models'); const data = await res.json(); if (data.models) this.availableModels = data.models; } catch(e) {} },
+                
                 async fetchDirs(path = null) {
                     try {
                         const url = path ? `/api/dirs?path=${encodeURIComponent(path)}` : '/api/dirs';
@@ -317,6 +358,7 @@
                     this.filterFolder = path; 
                     await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: path }) });
                 },
+                
                 async startScanAll() { this.results = []; this.isAiResult = false; await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: null }) }); },
                 async startAnalyze() { this.isAiResult = true; await fetch('/api/analyze', { method: 'POST' }); },
                 async pollStatus() {
@@ -329,10 +371,9 @@
                             if(!this.form.modelName) this.form.modelName = data.config.model_name; 
                             if(!this.form.proxyUrl) this.form.proxyUrl = data.config.proxy_url; 
                             if(data.config.music_dir) this.config.music_dir = data.config.music_dir;
+                            if(data.config.task_target_path) this.taskTargetFolder = data.config.task_target_path;
                             
-                            // 更新任务配置 (如果用户没有正在编辑)
                             if (data.config.tasks_config) {
-                                // 简单的合并，避免覆盖用户的临时输入
                                 for (let k in data.config.tasks_config) {
                                     if (!this.taskConfig[k]) this.taskConfig[k] = data.config.tasks_config[k];
                                     else this.taskConfig[k].last_run = data.config.tasks_config[k].last_run;
@@ -353,6 +394,7 @@
                 isSelected(path) { return this.selectedFiles.includes(path); },
                 toggleSelect(path) { if (this.isSelected(path)) this.selectedFiles = this.selectedFiles.filter(p => p !== path); else this.selectedFiles.push(path); },
                 async deleteSelected() { if (!confirm(`确定删除?`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.selectedFiles }) }); this.selectedFiles = []; this.refreshFiles(); },
+                
                 async refreshFiles() { const res = await fetch('/api/files'); const data = await res.json(); this.allFiles = data.files; },
                 toggleSelectAllFiles() { if (this.isAllFilesSelected) { const currentPaths = this.paginatedFiles.map(f => f.path); this.managerSelection = this.managerSelection.filter(p => !currentPaths.includes(p)); } else { const currentPaths = this.paginatedFiles.map(f => f.path); this.managerSelection = [...new Set([...this.managerSelection, ...currentPaths])]; } },
                 async deleteManagerSelection() { if (!confirm(`删除 ${this.managerSelection.length} 个文件?`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.managerSelection }) }); this.managerSelection = []; this.refreshFiles(); },
@@ -362,31 +404,21 @@
                 async fixSingleAI(file) { this.loadingFiles[file.path] = true; try { const res = await fetch('/api/fix_meta_single', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: file.path }) }); const data = await res.json(); if (data.success) await this.refreshFiles(); else alert("Error: "+data.error); } catch(e) { alert("Fail"); } finally { this.loadingFiles[file.path] = false; } },
                 
                 // === 计划任务方法 ===
-                async saveTasksConfig() {
+                async fetchFolderSelector() {
+                    // 获取根目录下的子目录列表供选择
                     try {
-                        const res = await fetch('/api/tasks/config', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ tasks: this.taskConfig })
-                        });
-                        if (res.ok) alert("计划任务设置已保存！");
-                    } catch (e) { alert("保存失败: " + e); }
-                },
-                async runTask(taskId) {
-                    if (!confirm("确定立即手动执行该任务吗？")) return;
-                    try {
-                        await fetch(`/api/tasks/run/${taskId}`, { method: 'POST' });
-                        alert("任务已启动，请查看日志");
-                        this.fetchLogs();
-                    } catch (e) { alert("启动失败: " + e); }
-                },
-                async fetchLogs() {
-                    try {
-                        const res = await fetch('/api/tasks/logs');
+                        const res = await fetch('/api/dirs?path=');
                         const data = await res.json();
-                        this.taskLogs = data.logs;
-                    } catch (e) {}
-                }
+                        this.folderSelectorList = data.subdirs;
+                    } catch(e) {}
+                },
+                selectTaskFolder(path) {
+                    this.taskTargetFolder = path;
+                    this.showFolderSelector = false;
+                },
+                async saveTasksConfig() { try { const res = await fetch('/api/tasks/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ tasks: this.taskConfig, target_path: this.taskTargetFolder }) }); if (res.ok) alert("设置已保存"); } catch (e) { alert("Fail"); } },
+                async runTask(taskId) { if (!confirm("立即执行?")) return; try { await fetch(`/api/tasks/run/${taskId}`, { method: 'POST' }); alert("任务已启动"); this.fetchLogs(); } catch (e) { alert("Fail"); } },
+                async fetchLogs() { try { const res = await fetch('/api/tasks/logs'); const data = await res.json(); this.taskLogs = data.logs; } catch (e) {} }
             }
         }).mount('#app');
     </script>
