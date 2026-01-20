@@ -29,11 +29,11 @@ class AppState:
         self.model_name = "gemini-1.5-flash"
         self.proxy_url = ""
         self.music_dir = "/music"
-        self.task_target_path = "/music" # âœ… æ–°å¢žï¼šè®¡åˆ’ä»»åŠ¡çš„ç›®æ ‡æ–‡ä»¶å¤¹
+        self.task_target_path = "/music" # ✅ 新增：计划任务的目标文件夹
         self.status = "idle" 
         self.progress = 0
         self.total = 0
-        self.message = "å‡†å¤‡å°±ç»ª"
+        self.message = "准备就绪"
         self.files = []       
         self.candidates = []  
         self.results = []
@@ -70,7 +70,7 @@ class AppState:
                     self.model_name = config.get("model_name", "gemini-1.5-flash").strip()
                     self.proxy_url = config.get("proxy_url", "").strip()
                     self.music_dir = config.get("music_dir", "/music").strip()
-                    # âœ… åŠ è½½ä»»åŠ¡ç›®æ ‡è·¯å¾„ï¼Œé»˜è®¤ä¸ºéŸ³ä¹æ ¹ç›®å½•
+                    # ✅ 加载任务目标路径，默认为音乐根目录
                     self.task_target_path = config.get("task_target_path", self.music_dir).strip()
                     
                     saved_tasks = config.get("tasks_config", {})
@@ -90,7 +90,7 @@ class AppState:
                     "model_name": self.model_name,
                     "proxy_url": self.proxy_url,
                     "music_dir": self.music_dir,
-                    "task_target_path": self.task_target_path, # âœ… ä¿å­˜ç›®æ ‡è·¯å¾„
+                    "task_target_path": self.task_target_path, # ✅ 保存目标路径
                     "tasks_config": self.tasks_config
                 }, f)
             self.apply_proxy()
@@ -116,7 +116,7 @@ class AppState:
                 except Exception as e:
                     print(f"Failed to schedule {task_id}: {e}")
 
-    # ... (apply_proxy, get_available_models ä¿æŒä¸å˜) ...
+    # ... (apply_proxy, get_available_models 保持不变) ...
     def apply_proxy(self):
         if self.proxy_url:
             os.environ['http_proxy'] = self.proxy_url
@@ -144,19 +144,19 @@ class AppState:
 
 state = AppState()
 
-# === æ ¸å¿ƒä»»åŠ¡é€»è¾‘ ===
+# === 核心任务逻辑 ===
 
-# âœ… è¾…åŠ©ï¼šèŽ·å–å½“å‰ä»»åŠ¡åº”è¯¥æ‰«æçš„è·¯å¾„
+# ✅ 辅助：获取当前任务应该扫描的路径
 def get_task_scan_dir():
-    # ç¡®ä¿è·¯å¾„å­˜åœ¨ï¼Œå¦åˆ™å›žé€€åˆ°æ ¹ç›®å½•
+    # 确保路径存在，否则回退到根目录
     if state.task_target_path and os.path.exists(state.task_target_path):
         return state.task_target_path
     return state.music_dir
 
 def run_task_wrapper(task_id):
-    """ä»»åŠ¡è¿è¡ŒåŒ…è£…å™¨"""
+    """任务运行包装器"""
     target = get_task_scan_dir()
-    state.log(f"å¼€å§‹æ‰§è¡Œä»»åŠ¡: {task_id} (ç›®æ ‡: {target})")
+    state.log(f"开始执行任务: {task_id} (目标: {target})")
     try:
         if task_id == "dedupe_quality":
             task_dedupe_quality(target)
@@ -169,13 +169,13 @@ def run_task_wrapper(task_id):
         
         state.tasks_config[task_id]["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         state.save_config()
-        state.log(f"ä»»åŠ¡å®Œæˆ: {task_id}")
+        state.log(f"任务完成: {task_id}")
     except Exception as e:
-        state.log(f"ä»»åŠ¡ {task_id} å¤±è´¥: {str(e)}")
+        state.log(f"任务 {task_id} 失败: {str(e)}")
 
-# âœ… ä¿®æ”¹æ‰€æœ‰ä»»åŠ¡å‡½æ•°ï¼ŒæŽ¥æ”¶ target_dir å‚æ•°
+# ✅ 修改所有任务函数，接收 target_dir 参数
 
-# ä»»åŠ¡1ï¼šéŸ³è´¨åŽ»é‡
+# 任务1：音质去重
 def task_dedupe_quality(target_dir):
     deleted_count = 0
     for root, _, files in os.walk(target_dir):
@@ -205,13 +205,13 @@ def task_dedupe_quality(target_dir):
                 for p in to_delete:
                     try:
                         os.remove(p)
-                        state.log(f"[éŸ³è´¨åŽ»é‡] åˆ é™¤: {os.path.basename(p)} (ä¿ç•™: {os.path.basename(keeper)})")
+                        state.log(f"[音质去重] 删除: {os.path.basename(p)} (保留: {os.path.basename(keeper)})")
                         deleted_count += 1
                     except Exception as e:
-                        state.log(f"åˆ é™¤å¤±è´¥ {p}: {e}")
-    state.log(f"éŸ³è´¨åŽ»é‡å®Œæˆï¼Œå…±åˆ é™¤ {deleted_count} ä¸ªæ–‡ä»¶")
+                        state.log(f"删除失败 {p}: {e}")
+    state.log(f"音质去重完成，共删除 {deleted_count} 个文件")
 
-# ä»»åŠ¡2ï¼šåˆ é™¤çŸ­éŸ³é¢‘
+# 任务2：删除短音频
 def task_clean_short(target_dir):
     threshold = state.tasks_config["clean_short"].get("min_duration", 60)
     deleted_count = 0
@@ -230,13 +230,13 @@ def task_clean_short(target_dir):
                     
                     if duration > 0 and duration < threshold:
                         os.remove(path)
-                        state.log(f"[çŸ­éŸ³é¢‘æ¸…ç†] åˆ é™¤: {f} (æ—¶é•¿: {int(duration)}s)")
+                        state.log(f"[短音频清理] 删除: {f} (时长: {int(duration)}s)")
                         deleted_count += 1
                 except Exception as e:
                     pass
-    state.log(f"çŸ­éŸ³é¢‘æ¸…ç†å®Œæˆï¼Œå…±åˆ é™¤ {deleted_count} ä¸ªæ–‡ä»¶")
+    state.log(f"短音频清理完成，共删除 {deleted_count} 个文件")
 
-# ä»»åŠ¡3ï¼šå…ƒæ•°æ®æå–
+# 任务3：元数据提取
 def task_extract_meta(target_dir):
     processed_count = 0
     for root, _, files in os.walk(target_dir):
@@ -283,13 +283,13 @@ def task_extract_meta(target_dir):
                         if art_data:
                             with open(cover_target, "wb") as img_file:
                                 img_file.write(art_data)
-                            state.log(f"[å…ƒæ•°æ®] æå–å°é¢: {os.path.basename(cover_target)}")
+                            state.log(f"[元数据] 提取封面: {os.path.basename(cover_target)}")
 
                 except Exception as e:
                     pass
-    state.log(f"å…ƒæ•°æ®æå–å®Œæˆ")
+    state.log(f"元数据提取完成")
 
-# ä»»åŠ¡4ï¼šåžƒåœ¾æ¸…ç†
+# 任务4：垃圾清理
 def task_clean_junk(target_dir):
     cleaned_count = 0
     music_exts = {'.mp3', '.flac', '.wav', '.m4a', '.wma', '.ape', '.ogg'}
@@ -308,19 +308,19 @@ def task_clean_junk(target_dir):
                     path = os.path.join(root, f)
                     try:
                         os.remove(path)
-                        state.log(f"[åžƒåœ¾æ¸…ç†] åˆ é™¤å­¤ç«‹æ–‡ä»¶: {path}")
+                        state.log(f"[垃圾清理] 删除孤立文件: {path}")
                         cleaned_count += 1
                     except: pass
             
             if not os.listdir(root):
                 try:
                     os.rmdir(root)
-                    state.log(f"[åžƒåœ¾æ¸…ç†] åˆ é™¤ç©ºç›®å½•: {root}")
+                    state.log(f"[垃圾清理] 删除空目录: {root}")
                 except: pass
 
-    state.log(f"åžƒåœ¾æ¸…ç†å®Œæˆï¼Œæ¸…ç† {cleaned_count} ä¸ªæ–‡ä»¶")
+    state.log(f"垃圾清理完成，清理 {cleaned_count} 个文件")
 
-# === è¾…åŠ©å‡½æ•° (ä¿æŒä¸å˜) ===
+# === 辅助函数 (保持不变) ===
 def get_dir_structure(current_path=None):
     if not current_path: target_dir = state.music_dir
     else: target_dir = current_path
@@ -425,12 +425,12 @@ def task_scan_and_group(target_path=None):
     for root, _, filenames in os.walk(scan_dir):
         for filename in filenames:
             if filename.lower().endswith(('.mp3', '.flac', '.m4a', '.wma')): file_list.append(os.path.join(root, filename))
-    state.total = len(file_list); state.message = f"åœ¨ {os.path.basename(scan_dir) or 'æ ¹ç›®å½•'} å‘çŽ° {state.total} ä¸ªæ–‡ä»¶..."
+    state.total = len(file_list); state.message = f"在 {os.path.basename(scan_dir) or '根目录'} 发现 {state.total} 个文件..."
     temp_files = []
     for idx, f_path in enumerate(file_list):
         if idx % 50 == 0: state.progress = idx + 1
         temp_files.append(get_metadata(f_path))
-    state.files.extend(temp_files); state.message = "æ­£åœ¨è¿›è¡Œæ¨¡ç³Šèšç±»..."
+    state.files.extend(temp_files); state.message = "正在进行模糊聚类..."
     sorted_files = sorted(state.files, key=lambda x: x['search_text']); candidates = []
     if not sorted_files: state.status = "idle"; return
     current_group = [sorted_files[0]]
@@ -441,17 +441,17 @@ def task_scan_and_group(target_path=None):
             if len(current_group) > 1: candidates.append(current_group)
             current_group = [curr]
     if len(current_group) > 1: candidates.append(current_group)
-    state.candidates = candidates; state.status = "idle"; state.message = f"æ‰«æå®Œæˆï¼Œå‘çŽ° {len(state.candidates)} ç»„ç–‘ä¼¼é‡å¤ã€‚"
+    state.candidates = candidates; state.status = "idle"; state.message = f"扫描完成，发现 {len(state.candidates)} 组疑似重复。"
 
 def task_analyze_with_gemini():
-    if not state.api_key: state.status = "error"; state.message = "API Key æœªé…ç½®"; return
+    if not state.api_key: state.status = "error"; state.message = "API Key 未配置"; return
     state.apply_proxy(); state.status = "analyzing"; state.results = []
     try:
         genai.configure(api_key=state.api_key); model = genai.GenerativeModel(state.model_name)
         total_groups = len(state.candidates); batch_size = 5 
         for i in range(0, total_groups, batch_size):
             batch = state.candidates[i:i+batch_size]; state.progress = i; state.total = total_groups
-            state.message = f"æ­£åœ¨è¯·æ±‚ AI ({state.model_name})... è¿›åº¦ {i}/{total_groups}"
+            state.message = f"正在请求 AI ({state.model_name})... 进度 {i}/{total_groups}"
             prompt_data = [{"group_id": i + idx, "files": [{k: v for k, v in f.items() if k not in ['path', 'search_text']} for f in group]} for idx, group in enumerate(batch)]
             prompt = f"""Identify duplicates. Rules: 1. Different extensions -> DUPLICATE. 2. "Live", "Remix" -> DUPLICATE. 3. Different songs -> NOT DUPLICATE. Input: {json.dumps(prompt_data)} Return JSON: {{ "results": [ {{ "group_id": int, "is_duplicate": bool, "reason": "string" }} ] }}"""
             try:
@@ -460,11 +460,11 @@ def task_analyze_with_gemini():
                 for res in ai_res.get("results", []):
                     if res.get("is_duplicate"):
                         gid = res["group_id"]
-                        if gid < len(state.candidates): state.results.append({"files": state.candidates[gid], "reason": res.get("reason", "AI åˆ¤å®šé‡å¤")})
+                        if gid < len(state.candidates): state.results.append({"files": state.candidates[gid], "reason": res.get("reason", "AI 判定重复")})
                 time.sleep(1) 
             except Exception as e: print(f"AI Batch Error: {e}")
-        state.status = "done"; state.message = f"åˆ†æžå®Œæˆã€‚å…±ç¡®è®¤ {len(state.results)} ç»„é‡å¤æ–‡ä»¶ã€‚"
-    except Exception as e: state.status = "error"; state.message = f"AI åˆå§‹åŒ–å¤±è´¥: {str(e)}"
+        state.status = "done"; state.message = f"分析完成。共确认 {len(state.results)} 组重复文件。"
+    except Exception as e: state.status = "error"; state.message = f"AI 初始化失败: {str(e)}"
 
 def start_scan_thread(target_path=None):
     t = threading.Thread(target=task_scan_and_group, args=(target_path,)); t.start()
