@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gemini Music Dedupe</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-gray-100 text-gray-800">
+    <div id="app" class="container mx-auto p-6 max-w-5xl">
+        <div class="flex justify-between items-center mb-8">
+            <h1 class="text-3xl font-bold text-indigo-600"><i class="fa-solid fa-music"></i> Gemini Dedupe</h1>
+            <div class="text-sm">
+                <span v-if="status.has_key" class="text-green-600 font-bold">API Key Configured</span>
+                <span v-else class="text-red-500">API Key Missing</span>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold mb-4">1. Configuration</h2>
+            <div class="flex gap-4">
+                <input type="password" v-model="apiKey" placeholder="Enter Gemini API Key" class="border p-2 rounded w-full">
+                <button @click="saveConfig" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700">Save</button>
+            </div>
+        </div>
+
+        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h2 class="text-xl font-semibold mb-4">2. Operations</h2>
+            
+            <div class="flex gap-4 mb-4">
+                <button @click="startScan" :disabled="isBusy" 
+                    class="bg-blue-500 text-white px-6 py-3 rounded disabled:bg-gray-300">
+                    <i class="fa-solid fa-magnifying-glass"></i> Scan Local Library
+                </button>
+                <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" 
+                    class="bg-purple-500 text-white px-6 py-3 rounded disabled:bg-gray-300">
+                    <i class="fa-solid fa-robot"></i> Ask Gemini ({{ status.candidates_count }} Groups)
+                </button>
+            </div>
+
+            <div v-if="status.status !== 'idle' && status.status !== 'done'" class="w-full bg-gray-200 rounded-full h-4 mb-2">
+                <div class="bg-blue-600 h-4 rounded-full transition-all" :style="{ width: progressPercent + '%' }"></div>
+            </div>
+            <p class="text-gray-600">{{ status.message }}</p>
+        </div>
+
+        <div v-if="results.length > 0" class="bg-white p-6 rounded-lg shadow-md">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-xl font-semibold">3. Review Duplicates ({{ results.length }} groups)</h2>
+                <button @click="deleteSelected" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700">
+                    Delete Selected ({{ selectedFiles.length }})
+                </button>
+            </div>
+
+            <div v-for="(group, gIndex) in results" :key="gIndex" class="border rounded-lg p-4 mb-4 bg-gray-50">
+                <div class="mb-2 flex justify-between">
+                    <span class="font-bold text-gray-700">Group #{{ gIndex + 1 }} - AI Reason: {{ group.reason }}</span>
+                </div>
+                
+                <div class="space-y-2">
+                    <div v-for="file in group.files" :key="file.path" 
+                         class="flex items-center justify-between bg-white p-3 rounded border hover:shadow-sm transition"
+                         :class="{'border-red-400 bg-red-50': isSelected(file.path), 'border-green-400 bg-green-50': !isSelected(file.path)}">
+                        
+                        <div class="flex items-center gap-4">
+                            <input type="checkbox" :value="file.path" v-model="selectedFiles" class="w-5 h-5 text-red-600">
+                            <div>
+                                <div class="font-bold">{{ file.filename }}</div>
+                                <div class="text-xs text-gray-500 font-mono">{{ file.path }}</div>
+                                <div class="text-xs mt-1">
+                                    <span class="bg-gray-200 px-2 py-1 rounded">{{ file.size_mb }} MB</span>
+                                    <span class="bg-gray-200 px-2 py-1 rounded ml-1">{{ file.bitrate }} kbps</span>
+                                    <span class="bg-gray-200 px-2 py-1 rounded ml-1">{{ file.duration }}s</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+
+        createApp({
+            data() {
+                return {
+                    apiKey: '',
+                    status: { status: 'idle', message: 'Ready', candidates_count: 0, progress: 0, total: 100 },
+                    results: [],
+                    selectedFiles: [],
+                    pollInterval: null
+                }
+            },
+            computed: {
+                isBusy() {
+                    return this.status.status === 'scanning' || this.status.status === 'analyzing';
+                },
+                progressPercent() {
+                    if (this.status.total === 0) return 0;
+                    return Math.min(100, Math.round((this.status.progress / this.status.total) * 100));
+                }
+            },
+            mounted() {
+                this.pollStatus();
+                this.pollInterval = setInterval(this.pollStatus, 2000);
+            },
+            methods: {
+                async saveConfig() {
+                    await fetch('/api/config', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ api_key: this.apiKey })
+                    });
+                    this.pollStatus();
+                },
+                async startScan() {
+                    await fetch('/api/scan', { method: 'POST' });
+                },
+                async startAnalyze() {
+                    await fetch('/api/analyze', { method: 'POST' });
+                },
+                async pollStatus() {
+                    const res = await fetch('/api/status');
+                    this.status = await res.json();
+                    
+                    if (this.status.status === 'done' && this.results.length === 0) {
+                        this.fetchResults();
+                    }
+                },
+                async fetchResults() {
+                    const res = await fetch('/api/results');
+                    const data = await res.json();
+                    this.results = data.results;
+                },
+                isSelected(path) {
+                    return this.selectedFiles.includes(path);
+                },
+                async deleteSelected() {
+                    if (!confirm(`Are you sure you want to permanently delete ${this.selectedFiles.length} files?`)) return;
+                    
+                    const res = await fetch('/api/delete', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ paths: this.selectedFiles })
+                    });
+                    const data = await res.json();
+                    alert(`Deleted: ${data.deleted.length}\nFailed: ${data.failed.length}`);
+                    
+                    // Remove deleted from UI
+                    this.results.forEach(group => {
+                        group.files = group.files.filter(f => !data.deleted.includes(f.path));
+                    });
+                    this.results = this.results.filter(g => g.files.length > 1);
+                    this.selectedFiles = [];
+                }
+            }
+        }).mount('#app');
+    </script>
+</body>
+</html>
