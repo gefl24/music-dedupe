@@ -28,7 +28,6 @@ class RenameRequest(BaseModel):
 class SingleFileRequest(BaseModel):
     path: str
 
-# ✅ 新增：扫描请求包含路径
 class ScanRequest(BaseModel):
     path: Optional[str] = None
 
@@ -63,11 +62,11 @@ async def list_models():
 async def get_all_files():
     return {"files": core.state.files}
 
-# ✅ 新增：获取目录结构接口
+# ✅ 修改：支持传入 path 获取子目录
 @app.get("/api/dirs")
-async def get_dirs():
-    dirs = core.get_dir_structure()
-    return {"dirs": dirs}
+async def get_dirs(path: Optional[str] = None):
+    dirs = core.get_dir_structure(path)
+    return dirs
 
 @app.get("/api/candidates")
 async def get_candidates():
@@ -104,12 +103,10 @@ async def set_config(config: ConfigRequest):
     core.state.save_config()
     return {"status": "ok"}
 
-# ✅ 修改：扫描接口接收路径
 @app.post("/api/scan")
 async def start_scan(req: ScanRequest):
     if core.state.status != "idle" and core.state.status != "done":
         return JSONResponse(status_code=400, content={"error": "Busy"})
-    # 传入目标路径，如果为 None 则全量扫描
     core.start_scan_thread(req.path)
     return {"status": "started"}
 
