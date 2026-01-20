@@ -22,7 +22,7 @@ class AppState:
         self.progress = 0
         self.total = 0
         self.message = "准备就绪"
-        self.files = []       # 内存中的文件缓存
+        self.files = []       
         self.candidates = []  
         self.results = []     
         self.load_config()
@@ -80,29 +80,41 @@ class AppState:
 
 state = AppState()
 
-# ✅ 新增：极速获取目录结构（不扫描文件）
-def get_dir_structure():
+# ✅ 修改：仅获取当前目录下的子文件夹（层级导航）
+def get_dir_structure(current_path=None):
+    if not current_path:
+        target_dir = state.music_dir
+    else:
+        target_dir = current_path
+
+    # 安全检查：确保不超出 music_dir
+    if not os.path.abspath(target_dir).startswith(os.path.abspath(state.music_dir)):
+        target_dir = state.music_dir
+
     dirs = []
-    base_len = len(state.music_dir)
     try:
-        # 使用 os.walk 但只关注文件夹
-        for root, subdirs, _ in os.walk(state.music_dir):
-            # 获取相对路径名称
-            rel_path = root[base_len:]
-            if rel_path.startswith('/'): rel_path = rel_path[1:]
-            if not rel_path: rel_path = "/ (根目录)"
-            
-            # 计算层级，简单的缩进显示
-            dirs.append({
-                "path": root,
-                "name": rel_path,
-                "short_name": os.path.basename(root) or "根目录"
-            })
+        # 使用 scandir 仅扫描当前层级，速度极快
+        with os.scandir(target_dir) as it:
+            for entry in it:
+                if entry.is_dir() and not entry.name.startswith('.'):
+                    dirs.append({
+                        "path": entry.path,
+                        "name": entry.name,
+                        "is_parent": False
+                    })
     except Exception as e:
         print(f"Dir scan error: {e}")
     
-    # 按路径排序
-    return sorted(dirs, key=lambda x: x['path'])
+    # 排序
+    dirs.sort(key=lambda x: x['name'].lower())
+    
+    # 如果不是根目录，添加“返回上级”的逻辑（前端处理，后端只需确认当前路径）
+    return {
+        "current_path": target_dir,
+        "is_root": os.path.abspath(target_dir) == os.path.abspath(state.music_dir),
+        "parent_path": os.path.dirname(target_dir),
+        "subdirs": dirs
+    }
 
 def get_metadata(path):
     filename = os.path.basename(path)
@@ -287,16 +299,12 @@ def fix_single_metadata_ai(path):
     except Exception as e:
         return {"error": str(e)}
 
-# ✅ 修改：增加 target_path 支持按文件夹扫描
 def task_scan_and_group(target_path=None):
     state.status = "scanning"
-    # 注意：这里不清空 state.files，而是进行 更新/追加
-    # 如果是全量扫描 (target_path=None)，则清空
     if target_path is None:
         state.files = []
         scan_dir = state.music_dir
     else:
-        # 如果是子文件夹，先移除该文件夹下的旧数据（防止重复），再追加
         state.files = [f for f in state.files if not f['path'].startswith(target_path)]
         scan_dir = target_path
 
@@ -304,7 +312,6 @@ def task_scan_and_group(target_path=None):
     state.results = [] 
     
     file_list = []
-    # 遍历
     for root, _, filenames in os.walk(scan_dir):
         for filename in filenames:
             if filename.lower().endswith(('.mp3', '.flac', '.m4a', '.wma')):
@@ -318,12 +325,10 @@ def task_scan_and_group(target_path=None):
         if idx % 50 == 0: state.progress = idx + 1
         temp_files.append(get_metadata(f_path))
     
-    # 合并到主列表
     state.files.extend(temp_files)
     
     state.message = "正在进行模糊聚类 (全局)..."
     
-    # 模糊聚类 (对所有已加载的文件进行)
     sorted_files = sorted(state.files, key=lambda x: x['search_text'])
     candidates = []
     if not sorted_files:
@@ -347,7 +352,6 @@ def task_scan_and_group(target_path=None):
     state.message = f"扫描完成。共加载 {len(state.files)} 个文件，发现 {len(state.candidates)} 组疑似重复。"
 
 def task_analyze_with_gemini():
-    # ... (保持不变) ...
     if not state.api_key:
         state.status = "error"
         state.message = "API Key 未配置"
