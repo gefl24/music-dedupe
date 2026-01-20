@@ -6,6 +6,7 @@ import google.generativeai as genai
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
+from thefuzz import fuzz # 引入模糊匹配库
 
 # 数据存储路径
 DATA_DIR = "/data"
@@ -14,7 +15,7 @@ CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 class AppState:
     def __init__(self):
         self.api_key = ""
-        self.model_name = "gemini-1.5-flash"  # 默认模型
+        self.model_name = "gemini-1.5-flash"
         self.music_dir = "/music"
         self.status = "idle" 
         self.progress = 0
@@ -26,7 +27,6 @@ class AppState:
         self.load_config()
 
     def load_config(self):
-        """加载持久化配置"""
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, 'r') as f:
@@ -37,7 +37,6 @@ class AppState:
                 print(f"Error loading config: {e}")
 
     def save_config(self):
-        """保存配置到文件"""
         try:
             if not os.path.exists(DATA_DIR):
                 os.makedirs(DATA_DIR)
@@ -52,7 +51,6 @@ class AppState:
 state = AppState()
 
 def get_metadata(path):
-    # ... (保持原有的 get_metadata 逻辑不变，为了节省篇幅省略) ...
     filename = os.path.basename(path)
     size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
     tags = {}
@@ -71,16 +69,25 @@ def get_metadata(path):
             bitrate = int(audio.info.bitrate / 1000)
     except:
         pass
+    
     artist = tags.get('artist', [''])[0]
     title = tags.get('title', [''])[0]
-    if not artist or not title:
+    
+    # 如果没有标签，尝试从文件名解析
+    if not artist and not title:
         base = os.path.splitext(filename)[0]
+        # 尝试常见格式 "Artist - Title"
         if " - " in base:
             parts = base.split(" - ")
             artist = parts[0]
             title = parts[1] if len(parts) > 1 else base
         else:
             title = base
+
+    # 构造用于模糊搜索的文本 (包含歌手、标题、文件名)
+    # 这样即使元数据不全，文件名相似也能匹配
+    search_text = f"{artist} {title} {filename}".lower()
+
     return {
         "id": hash(path),
         "path": path,
@@ -89,19 +96,20 @@ def get_metadata(path):
         "title": title.strip(),
         "duration": duration,
         "size_mb": size_mb,
-        "bitrate": bitrate
+        "bitrate": bitrate,
+        "search_text": search_text # 核心字段：用于排序和比对
     }
 
 def task_scan_and_group():
     state.status = "scanning"
     state.files = []
     state.candidates = []
-    state.results = [] # 清空上次结果
+    state.results = [] 
     
     file_list = []
     for root, _, filenames in os.walk(state.music_dir):
         for filename in filenames:
-            if filename.lower().endswith(('.mp3', '.flac', '.m4a')):
+            if filename.lower().endswith(('.mp3', '.flac', '.m4a', '.wma')):
                 file_list.append(os.path.join(root, filename))
     
     state.total = len(file_list)
@@ -109,26 +117,58 @@ def task_scan_and_group():
     
     temp_files = []
     for idx, f_path in enumerate(file_list):
-        state.progress = idx + 1
+        # 每处理 50 个文件更新一次进度，减少开销
+        if idx % 50 == 0:
+            state.progress = idx + 1
         temp_files.append(get_metadata(f_path))
     
     state.files = temp_files
-    state.message = "正在进行本地模糊分组..."
+    state.message = "正在进行模糊聚类 (智能排序+相似度对比)..."
     
-    groups = {}
-    for item in state.files:
-        clean_name = "".join(filter(str.isalnum, (item['artist'] + item['title']).lower()))
-        if len(clean_name) < 5: 
-             clean_name = "".join(filter(str.isalnum, item['filename'].lower()))
+    # --- 核心改进：模糊匹配算法 ---
+    
+    # 1. 按照 search_text 排序
+    # 这一步非常关键：它将相似的文件排在相邻位置
+    # 例如：["adele hello", "adele hello live", "backstreet boys"]
+    sorted_files = sorted(state.files, key=lambda x: x['search_text'])
+    
+    candidates = []
+    if not sorted_files:
+        state.status = "idle"
+        return
+
+    current_group = [sorted_files[0]]
+    
+    # 2. 遍历排序后的列表，比较相邻项
+    for i in range(1, len(sorted_files)):
+        prev = current_group[0] # 拿当前组的第一个作为基准
+        curr = sorted_files[i]
         
-        if clean_name not in groups:
-            groups[clean_name] = []
-        groups[clean_name].append(item)
+        state.progress = i
+        
+        # 使用 token_set_ratio:
+        # 它自动处理单词乱序和子集问题。
+        # 例如: "周杰伦 晴天" vs "晴天 周杰伦" -> Score 100
+        # "Hello" vs "Hello (Live)" -> Score 100 (因为 Hello 是集合的子集)
+        similarity = fuzz.token_set_ratio(prev['search_text'], curr['search_text'])
+        
+        # 阈值设定为 80，稍微宽松一点，把筛选交给 AI
+        if similarity > 80:
+            current_group.append(curr)
+        else:
+            # 如果当前组超过1个文件，说明有疑似重复，保存下来
+            if len(current_group) > 1:
+                candidates.append(current_group)
+            # 开启新的一组
+            current_group = [curr]
+            
+    # 处理最后一组
+    if len(current_group) > 1:
+        candidates.append(current_group)
     
-    state.candidates = [v for k, v in groups.items() if len(v) > 1]
-    
+    state.candidates = candidates
     state.status = "idle"
-    state.message = f"扫描完成。本地发现 {len(state.candidates)} 组疑似重复。"
+    state.message = f"扫描完成。基于标题相似度，发现 {len(state.candidates)} 组疑似重复。"
 
 def task_analyze_with_gemini():
     if not state.api_key:
@@ -141,11 +181,10 @@ def task_analyze_with_gemini():
     
     try:
         genai.configure(api_key=state.api_key)
-        # 使用配置的模型
         model = genai.GenerativeModel(state.model_name)
         
         total_groups = len(state.candidates)
-        batch_size = 5 # 减小一点 batch 以防大模型 token 超出
+        batch_size = 5 
         
         for i in range(0, total_groups, batch_size):
             batch = state.candidates[i:i+batch_size]
@@ -157,14 +196,20 @@ def task_analyze_with_gemini():
             for idx, group in enumerate(batch):
                 prompt_data.append({
                     "group_id": i + idx,
-                    "files": [{k: v for k, v in f.items() if k != 'path'} for f in group]
+                    "files": [{k: v for k, v in f.items() if k != 'path' and k != 'search_text'} for f in group]
                 })
 
             prompt = f"""
-            Identify duplicates in these music groups. 
-            Ignore purely format extensions if the song is the same.
+            I have grouped these music files because they have SIMILAR filenames or tags.
+            Your task is to be the judge: Are they actually the same song (duplicates)?
+            
+            Rules:
+            1. Different file extensions (mp3 vs flac) of the same song -> DUPLICATE.
+            2. "Live", "Remix", "Instrumental" versions vs Original -> DUPLICATE (I want to see them grouped).
+            3. Completely different songs (false positive fuzzy match) -> NOT DUPLICATE.
+            
             Input: {json.dumps(prompt_data)}
-            Return JSON object with "results": [ {{ "group_id": int, "is_duplicate": bool, "reason": string }} ]
+            Return JSON object with "results": [ {{ "group_id": int, "is_duplicate": bool, "reason": "brief explanation" }} ]
             """
             
             try:
