@@ -20,7 +20,6 @@ from thefuzz import fuzz
 DATA_DIR = "/data"
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
-# 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("MusicManager")
 
@@ -30,6 +29,7 @@ class AppState:
         self.model_name = "gemini-1.5-flash"
         self.proxy_url = ""
         self.music_dir = "/music"
+        self.task_target_path = "/music" # ✅ 新增：计划任务的目标文件夹
         self.status = "idle" 
         self.progress = 0
         self.total = 0
@@ -38,19 +38,17 @@ class AppState:
         self.candidates = []  
         self.results = []
         
-        # 任务配置
         self.tasks_config = {
-            "dedupe_quality": {"enabled": False, "cron": "0 2 * * *", "last_run": None}, # 每天凌晨2点
-            "clean_short": {"enabled": False, "cron": "0 3 * * *", "min_duration": 60, "last_run": None}, # 每天凌晨3点
-            "extract_meta": {"enabled": False, "cron": "0 4 * * *", "last_run": None}, # 每天凌晨4点
-            "clean_junk": {"enabled": False, "cron": "0 5 * * *", "last_run": None}  # 每天凌晨5点
+            "dedupe_quality": {"enabled": False, "cron": "0 2 * * *", "last_run": None},
+            "clean_short": {"enabled": False, "cron": "0 3 * * *", "min_duration": 60, "last_run": None},
+            "extract_meta": {"enabled": False, "cron": "0 4 * * *", "last_run": None},
+            "clean_junk": {"enabled": False, "cron": "0 5 * * *", "last_run": None}
         }
-        self.task_logs = [] # 存储最近的任务日志
+        self.task_logs = []
 
         self.load_config()
         self.apply_proxy()
         
-        # 初始化调度器
         self.scheduler = BackgroundScheduler()
         self.update_scheduler()
         self.scheduler.start()
@@ -60,7 +58,7 @@ class AppState:
         entry = f"[{timestamp}] {msg}"
         print(entry)
         self.task_logs.insert(0, entry)
-        if len(self.task_logs) > 200: # 只保留最近200条
+        if len(self.task_logs) > 200:
             self.task_logs.pop()
 
     def load_config(self):
@@ -72,7 +70,9 @@ class AppState:
                     self.model_name = config.get("model_name", "gemini-1.5-flash").strip()
                     self.proxy_url = config.get("proxy_url", "").strip()
                     self.music_dir = config.get("music_dir", "/music").strip()
-                    # 加载任务配置
+                    # ✅ 加载任务目标路径，默认为音乐根目录
+                    self.task_target_path = config.get("task_target_path", self.music_dir).strip()
+                    
                     saved_tasks = config.get("tasks_config", {})
                     for key, val in saved_tasks.items():
                         if key in self.tasks_config:
@@ -90,10 +90,11 @@ class AppState:
                     "model_name": self.model_name,
                     "proxy_url": self.proxy_url,
                     "music_dir": self.music_dir,
+                    "task_target_path": self.task_target_path, # ✅ 保存目标路径
                     "tasks_config": self.tasks_config
                 }, f)
             self.apply_proxy()
-            self.update_scheduler() # 保存配置时更新调度任务
+            self.update_scheduler()
         except Exception as e:
             print(f"Error saving config: {e}")
 
@@ -102,7 +103,6 @@ class AppState:
         for task_id, conf in self.tasks_config.items():
             if conf.get("enabled"):
                 try:
-                    # 解析简单的 Cron 表达式: "分 时 日 月 周"
                     parts = conf["cron"].split()
                     if len(parts) == 5:
                         self.scheduler.add_job(
@@ -116,6 +116,7 @@ class AppState:
                 except Exception as e:
                     print(f"Failed to schedule {task_id}: {e}")
 
+    # ... (apply_proxy, get_available_models 保持不变) ...
     def apply_proxy(self):
         if self.proxy_url:
             os.environ['http_proxy'] = self.proxy_url
@@ -145,32 +146,39 @@ state = AppState()
 
 # === 核心任务逻辑 ===
 
+# ✅ 辅助：获取当前任务应该扫描的路径
+def get_task_scan_dir():
+    # 确保路径存在，否则回退到根目录
+    if state.task_target_path and os.path.exists(state.task_target_path):
+        return state.task_target_path
+    return state.music_dir
+
 def run_task_wrapper(task_id):
     """任务运行包装器"""
-    state.log(f"开始执行任务: {task_id}")
+    target = get_task_scan_dir()
+    state.log(f"开始执行任务: {task_id} (目标: {target})")
     try:
         if task_id == "dedupe_quality":
-            task_dedupe_quality()
+            task_dedupe_quality(target)
         elif task_id == "clean_short":
-            task_clean_short()
+            task_clean_short(target)
         elif task_id == "extract_meta":
-            task_extract_meta()
+            task_extract_meta(target)
         elif task_id == "clean_junk":
-            task_clean_junk()
+            task_clean_junk(target)
         
-        # 更新最后运行时间
         state.tasks_config[task_id]["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        state.save_config() # 保存运行时间
+        state.save_config()
         state.log(f"任务完成: {task_id}")
     except Exception as e:
         state.log(f"任务 {task_id} 失败: {str(e)}")
 
+# ✅ 修改所有任务函数，接收 target_dir 参数
+
 # 任务1：音质去重
-def task_dedupe_quality():
+def task_dedupe_quality(target_dir):
     deleted_count = 0
-    # 遍历所有子目录
-    for root, _, files in os.walk(state.music_dir):
-        # 按“文件名(不含扩展名)”分组
+    for root, _, files in os.walk(target_dir):
         groups = {}
         for f in files:
             if f.lower().endswith(('.mp3', '.flac', '.wav', '.m4a', '.wma')):
@@ -179,11 +187,8 @@ def task_dedupe_quality():
                 if base_name not in groups: groups[base_name] = []
                 groups[base_name].append(full_path)
         
-        # 处理每一组
         for base_name, paths in groups.items():
             if len(paths) > 1:
-                # 按照优先级排序：flac/wav > m4a > mp3 > wma
-                # 如果格式相同，比大小（通常大文件音质好）
                 def quality_score(path):
                     ext = os.path.splitext(path)[1].lower()
                     size = os.path.getsize(path)
@@ -191,29 +196,26 @@ def task_dedupe_quality():
                     if ext in ['.flac', '.wav']: score = 3
                     elif ext in ['.m4a', '.aac']: score = 2
                     elif ext == '.mp3': score = 1
-                    return (score, size) # 元组比较，先比格式，再比大小
+                    return (score, size)
                 
-                # 排序，得分最高的在最后
                 paths.sort(key=quality_score)
-                
-                # 保留最后一个，删除前面的
                 keeper = paths[-1]
                 to_delete = paths[:-1]
                 
                 for p in to_delete:
                     try:
                         os.remove(p)
-                        state.log(f"[音质去重] 删除低音质: {os.path.basename(p)} (保留: {os.path.basename(keeper)})")
+                        state.log(f"[音质去重] 删除: {os.path.basename(p)} (保留: {os.path.basename(keeper)})")
                         deleted_count += 1
                     except Exception as e:
                         state.log(f"删除失败 {p}: {e}")
     state.log(f"音质去重完成，共删除 {deleted_count} 个文件")
 
 # 任务2：删除短音频
-def task_clean_short():
+def task_clean_short(target_dir):
     threshold = state.tasks_config["clean_short"].get("min_duration", 60)
     deleted_count = 0
-    for root, _, files in os.walk(state.music_dir):
+    for root, _, files in os.walk(target_dir):
         for f in files:
             if f.lower().endswith(('.mp3', '.flac', '.m4a')):
                 path = os.path.join(root, f)
@@ -225,7 +227,6 @@ def task_clean_short():
                     elif f.lower().endswith('.flac'):
                         audio = FLAC(path)
                         duration = audio.info.length
-                    # 暂时略过 m4a 的时长读取，mutagen 读 m4a 略繁琐，避免报错
                     
                     if duration > 0 and duration < threshold:
                         os.remove(path)
@@ -235,19 +236,18 @@ def task_clean_short():
                     pass
     state.log(f"短音频清理完成，共删除 {deleted_count} 个文件")
 
-# 任务3：元数据提取 (NFO + 图片)
-def task_extract_meta():
+# 任务3：元数据提取
+def task_extract_meta(target_dir):
     processed_count = 0
-    for root, _, files in os.walk(state.music_dir):
+    for root, _, files in os.walk(target_dir):
         for f in files:
             if f.lower().endswith(('.mp3', '.flac')):
                 path = os.path.join(root, f)
                 base_name = os.path.splitext(f)[0]
                 
                 try:
-                    meta = get_metadata(path) # 复用 core.py 里的函数
+                    meta = get_metadata(path)
                     
-                    # 1. 生成 NFO (Emby 适配)
                     nfo_path = os.path.join(root, f"{base_name}.nfo")
                     if not os.path.exists(nfo_path):
                         nfo_content = f"""<?xml version="1.0" encoding="utf-8" standalone="yes"?>
@@ -262,17 +262,14 @@ def task_extract_meta():
                             nfo_file.write(nfo_content)
                         processed_count += 1
 
-                    # 2. 提取封面
-                    # 优先提取为 folder.jpg (如果是专辑文件夹)，否则提取为 filename.jpg
                     cover_target = os.path.join(root, "folder.jpg")
                     if os.path.exists(cover_target): 
-                        cover_target = os.path.join(root, f"{base_name}.jpg") # folder.jpg 已存在，尝试存为单曲封面
+                        cover_target = os.path.join(root, f"{base_name}.jpg")
                     
                     if not os.path.exists(cover_target):
                         art_data = None
                         if f.lower().endswith('.mp3'):
                             audio = MP3(path, ID3=EasyID3)
-                            # ID3 封面提取
                             if audio.tags:
                                 for key in audio.tags.keys():
                                     if key.startswith('APIC:'):
@@ -292,20 +289,19 @@ def task_extract_meta():
                     pass
     state.log(f"元数据提取完成")
 
-# 任务4：冗余垃圾清理
-def task_clean_junk():
+# 任务4：垃圾清理
+def task_clean_junk(target_dir):
     cleaned_count = 0
     music_exts = {'.mp3', '.flac', '.wav', '.m4a', '.wma', '.ape', '.ogg'}
     junk_exts = {'.nfo', '.jpg', '.jpeg', '.png', '.lrc', '.txt'}
     
-    for root, dirs, files in os.walk(state.music_dir):
+    for root, dirs, files in os.walk(target_dir):
         has_music = False
         for f in files:
             if os.path.splitext(f)[1].lower() in music_exts:
                 has_music = True
                 break
         
-        # 如果该文件夹下没有音乐文件，清理附属文件
         if not has_music:
             for f in files:
                 if os.path.splitext(f)[1].lower() in junk_exts:
@@ -316,7 +312,6 @@ def task_clean_junk():
                         cleaned_count += 1
                     except: pass
             
-            # 尝试删除空文件夹
             if not os.listdir(root):
                 try:
                     os.rmdir(root)
@@ -325,11 +320,7 @@ def task_clean_junk():
 
     state.log(f"垃圾清理完成，清理 {cleaned_count} 个文件")
 
-# === 现有辅助函数 (保持不变) ===
-# get_dir_structure, get_metadata, batch_update_metadata, batch_rename_files, 
-# fix_single_metadata_ai, task_scan_and_group, task_analyze_with_gemini, delete_file 
-# ... (请确保保留你之前 core.py 中的这些函数) ...
-
+# === 辅助函数 (保持不变) ===
 def get_dir_structure(current_path=None):
     if not current_path: target_dir = state.music_dir
     else: target_dir = current_path
@@ -453,7 +444,6 @@ def task_scan_and_group(target_path=None):
     state.candidates = candidates; state.status = "idle"; state.message = f"扫描完成，发现 {len(state.candidates)} 组疑似重复。"
 
 def task_analyze_with_gemini():
-    # ... (保持原样)
     if not state.api_key: state.status = "error"; state.message = "API Key 未配置"; return
     state.apply_proxy(); state.status = "analyzing"; state.results = []
     try:
