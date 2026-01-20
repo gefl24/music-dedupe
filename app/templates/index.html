@@ -3,135 +3,189 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 音乐去重助手</title>
+    <title>音乐管家 & AI 去重</title>
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
-<body class="bg-gray-100 text-gray-800">
-    <div id="app" class="container mx-auto p-6 max-w-5xl">
-        <div class="flex justify-between items-center mb-8">
-            <h1 class="text-3xl font-bold text-indigo-600"><i class="fa-solid fa-music"></i> 音乐去重助手 (Gemini版)</h1>
-            <div class="text-sm">
-                <span v-if="config.has_key" class="text-green-600 font-bold"><i class="fa-solid fa-check-circle"></i> 已就绪: {{ config.model_name }}</span>
-                <span v-else class="text-red-500"><i class="fa-solid fa-exclamation-triangle"></i> 未配置 API Key</span>
-            </div>
-        </div>
-
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold mb-4 border-b pb-2">1. 系统配置</h2>
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div class="md:col-span-2">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Gemini API Key</label>
-                    <input type="password" v-model="form.apiKey" placeholder="输入以 AIza 开头的 Key" 
-                        class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
-                </div>
+<body class="bg-gray-100 text-gray-800 h-screen flex flex-col">
+    <div id="app" class="h-full flex flex-col">
+        <header class="bg-white shadow z-10">
+            <div class="container mx-auto px-6 py-4 flex justify-between items-center">
+                <h1 class="text-2xl font-bold text-indigo-600 flex items-center gap-2">
+                    <i class="fa-solid fa-music"></i> 音乐管家
+                </h1>
                 
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">HTTP 代理 (可选)</label>
-                    <input type="text" v-model="form.proxyUrl" placeholder="例如: http://192.168.1.5:7890" 
-                        class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
-                </div>
-
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1 flex justify-between">
-                        <span>选择或输入模型名</span>
-                        <a href="#" @click.prevent="fetchModels" class="text-indigo-600 hover:text-indigo-800 text-xs">
-                            <i class="fa-solid fa-sync"></i> 刷新列表
-                        </a>
-                    </label>
-                    <div class="relative">
-                        <input list="model-list" v-model="form.modelName" 
-                            placeholder="手动输入如: gemini-3-flash"
-                            class="border p-2 rounded w-full focus:ring-2 focus:ring-indigo-500 outline-none">
-                        <datalist id="model-list">
-                            <option v-for="m in availableModels" :value="m">{{ m }}</option>
-                        </datalist>
-                    </div>
-                    <p class="text-xs text-gray-500 mt-1">手动输入支持最新模型，点击刷新可获取 Google 官方列表。</p>
-                </div>
-            </div>
-            <div class="mt-4 text-right">
-                <button @click="saveConfig" class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 transition">
-                    <i class="fa-solid fa-save"></i> 保存配置
-                </button>
-            </div>
-        </div>
-
-        <div class="bg-white p-6 rounded-lg shadow-md mb-6">
-            <h2 class="text-xl font-semibold mb-4 border-b pb-2">2. 扫描与分析</h2>
-            
-            <div class="flex flex-wrap gap-4 mb-4">
-                <button @click="startScan" :disabled="isBusy" 
-                    class="bg-blue-500 text-white px-6 py-3 rounded hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex-1">
-                    <i class="fa-solid fa-magnifying-glass"></i> 第一步: 扫描本地文件 (模糊匹配)
-                </button>
-                <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" 
-                    class="bg-purple-500 text-white px-6 py-3 rounded hover:bg-purple-600 disabled:bg-gray-300 disabled:cursor-not-allowed transition flex-1">
-                    <i class="fa-solid fa-robot"></i> 第二步: AI 智能分析 ({{ status.candidates_count }} 组)
-                </button>
-            </div>
-
-            <div class="bg-gray-50 p-4 rounded border border-gray-200">
-                <div class="flex justify-between text-sm text-gray-600 mb-2">
-                    <span><strong>当前状态:</strong> {{ getStatusText(status.status) }}</span>
-                    <span v-if="status.total > 0">{{ status.progress }} / {{ status.total }}</span>
-                </div>
-                <div v-if="isBusy" class="w-full bg-gray-200 rounded-full h-2.5 mb-2 overflow-hidden">
-                    <div class="bg-blue-600 h-2.5 rounded-full transition-all duration-300" :style="{ width: progressPercent + '%' }"></div>
-                </div>
-                <p class="text-gray-500 text-sm">{{ status.message }}</p>
-            </div>
-        </div>
-
-        <div v-if="showResults" class="bg-white p-6 rounded-lg shadow-md">
-            <div class="flex justify-between items-center mb-6 border-b pb-4">
-                <h2 class="text-xl font-semibold text-gray-800">3. 结果处理 (共 {{ results.length }} 组)</h2>
-                <div v-if="selectedFiles.length > 0">
-                    <span class="text-red-600 font-bold mr-4">已选中 {{ selectedFiles.length }} 个文件</span>
-                    <button @click="deleteSelected" class="bg-red-600 text-white px-6 py-2 rounded hover:bg-red-700 shadow-lg transition">
-                        <i class="fa-solid fa-trash"></i> 确认删除
+                <div class="flex gap-4">
+                    <button @click="currentTab = 'dedupe'" 
+                        :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'dedupe', 'text-gray-500': currentTab !== 'dedupe'}"
+                        class="px-4 py-2 font-medium transition">
+                        <i class="fa-solid fa-clone"></i> AI 去重
+                    </button>
+                    <button @click="currentTab = 'manager'" 
+                        :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'manager', 'text-gray-500': currentTab !== 'manager'}"
+                        class="px-4 py-2 font-medium transition">
+                        <i class="fa-solid fa-folder-open"></i> 文件管理
                     </button>
                 </div>
-            </div>
 
-            <div v-if="results.length === 0" class="text-center py-10 text-gray-500">
-                <i class="fa-solid fa-check-double text-4xl mb-4 text-green-500"></i>
-                <p>AI 没有发现确认的重复文件。</p>
-            </div>
-
-            <div v-for="(group, gIndex) in results" :key="gIndex" class="border rounded-lg p-4 mb-6 bg-gray-50 hover:shadow-md transition">
-                <div class="mb-3 flex justify-between items-center">
-                    <span class="font-bold text-gray-700 bg-yellow-100 px-2 py-1 rounded text-sm">
-                        <i class="fa-solid fa-lightbulb text-yellow-500"></i> AI 建议: {{ group.reason }}
-                    </span>
+                <div class="text-sm">
+                    <span v-if="config.has_key" class="text-green-600 font-bold"><i class="fa-solid fa-check-circle"></i> {{ config.model_name }}</span>
+                    <span v-else class="text-red-500"><i class="fa-solid fa-exclamation-triangle"></i> 未配置 API</span>
                 </div>
-                
-                <div class="space-y-2">
-                    <div v-for="file in group.files" :key="file.path" 
-                         class="flex items-center justify-between bg-white p-3 rounded border cursor-pointer transition select-none"
-                         :class="{'border-red-500 bg-red-50 ring-1 ring-red-500': isSelected(file.path), 'hover:border-blue-300': !isSelected(file.path)}"
-                         @click="toggleSelect(file.path)">
-                        
-                        <div class="flex items-center gap-4 overflow-hidden">
-                            <div class="flex-shrink-0">
-                                <i v-if="isSelected(file.path)" class="fa-regular fa-square-check text-2xl text-red-500"></i>
-                                <i v-else class="fa-regular fa-square text-2xl text-gray-300"></i>
+            </div>
+        </header>
+
+        <main class="flex-1 overflow-hidden container mx-auto p-6">
+            
+            <div v-if="currentTab === 'dedupe'" class="h-full overflow-y-auto pr-2">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div class="bg-white p-5 rounded-lg shadow-sm">
+                        <h2 class="font-bold mb-3 text-gray-700">配置</h2>
+                        <div class="space-y-3">
+                            <input type="password" v-model="form.apiKey" placeholder="Gemini API Key" class="w-full border p-2 rounded text-sm">
+                            <div class="flex gap-2">
+                                <input list="model-list" v-model="form.modelName" placeholder="模型名称" class="w-full border p-2 rounded text-sm">
+                                <datalist id="model-list"><option v-for="m in availableModels" :value="m">{{ m }}</option></datalist>
+                                <button @click="fetchModels" class="bg-gray-200 px-3 rounded text-gray-600"><i class="fa-solid fa-sync"></i></button>
                             </div>
-                            <div class="min-w-0">
-                                <div class="font-bold truncate text-gray-800">{{ file.filename }}</div>
-                                <div class="text-xs text-gray-500 font-mono truncate" :title="file.path">{{ file.path }}</div>
-                                <div class="text-xs mt-1 text-gray-600 flex gap-2">
-                                    <span class="bg-gray-100 px-2 py-0.5 rounded border">{{ file.size_mb }} MB</span>
-                                    <span class="bg-gray-100 px-2 py-0.5 rounded border">{{ file.bitrate }} kbps</span>
-                                    <span class="bg-gray-100 px-2 py-0.5 rounded border">{{ file.duration }}秒</span>
+                            <input type="text" v-model="form.proxyUrl" placeholder="HTTP 代理 (http://IP:PORT)" class="w-full border p-2 rounded text-sm">
+                            <button @click="saveConfig" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 text-sm">保存配置</button>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-white p-5 rounded-lg shadow-sm flex flex-col justify-between">
+                        <div>
+                            <h2 class="font-bold mb-3 text-gray-700">任务控制</h2>
+                            <p class="text-sm text-gray-500 mb-4">{{ status.message }}</p>
+                            <div v-if="isBusy" class="w-full bg-gray-200 rounded-full h-2 mb-4">
+                                <div class="bg-blue-600 h-2 rounded-full transition-all" :style="{ width: progressPercent + '%' }"></div>
+                            </div>
+                        </div>
+                        <div class="flex gap-3">
+                            <button @click="startScan" :disabled="isBusy" class="flex-1 bg-blue-500 text-white py-3 rounded hover:bg-blue-600 disabled:opacity-50">
+                                1. 扫描
+                            </button>
+                            <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="flex-1 bg-purple-500 text-white py-3 rounded hover:bg-purple-600 disabled:opacity-50">
+                                2. AI 分析
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-if="results.length > 0" class="bg-white rounded-lg shadow-sm p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold text-lg">重复分析结果 ({{ results.length }} 组)</h3>
+                        <button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
+                            删除选中 ({{ selectedFiles.length }})
+                        </button>
+                    </div>
+                    <div v-for="(group, idx) in results" :key="idx" class="border rounded mb-4 p-4 bg-gray-50">
+                        <div class="text-sm text-yellow-700 bg-yellow-100 p-2 rounded mb-2"><i class="fa-solid fa-lightbulb"></i> {{ group.reason }}</div>
+                        <div class="space-y-1">
+                            <div v-for="file in group.files" :key="file.path" 
+                                @click="toggleSelect(file.path)"
+                                class="flex items-center gap-3 p-2 bg-white border rounded cursor-pointer hover:border-blue-400"
+                                :class="{'ring-2 ring-red-500 border-red-500': isSelected(file.path)}">
+                                <i :class="isSelected(file.path) ? 'fa-regular fa-square-check text-red-500' : 'fa-regular fa-square text-gray-300'"></i>
+                                <div class="text-sm overflow-hidden">
+                                    <div class="font-bold">{{ file.filename }}</div>
+                                    <div class="text-gray-500 text-xs">{{ file.size_mb }}MB | {{ file.bitrate }}kbps | {{ file.path }}</div>
                                 </div>
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
+
+            <div v-else class="h-full flex gap-6">
+                <div class="flex-1 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden">
+                    <div class="p-4 border-b flex gap-3">
+                        <input type="text" v-model="fileSearch" placeholder="搜索艺术家、标题或文件名..." class="flex-1 border p-2 rounded text-sm">
+                        <button @click="refreshFiles" class="bg-gray-100 px-3 rounded hover:bg-gray-200"><i class="fa-solid fa-sync"></i></button>
+                    </div>
+                    <div class="flex-1 overflow-y-auto p-2">
+                        <table class="w-full text-sm text-left">
+                            <thead class="bg-gray-50 sticky top-0">
+                                <tr>
+                                    <th class="p-2 w-8"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected"></th>
+                                    <th class="p-2">文件名</th>
+                                    <th class="p-2">艺术家</th>
+                                    <th class="p-2">标题</th>
+                                    <th class="p-2">专辑</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="file in filteredFiles" :key="file.path" class="border-b hover:bg-blue-50">
+                                    <td class="p-2"><input type="checkbox" :value="file.path" v-model="managerSelection"></td>
+                                    <td class="p-2 max-w-xs truncate" :title="file.filename">{{ file.filename }}</td>
+                                    <td class="p-2 max-w-xs truncate">{{ file.artist }}</td>
+                                    <td class="p-2 max-w-xs truncate">{{ file.title }}</td>
+                                    <td class="p-2 max-w-xs truncate">{{ file.album }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                        <div v-if="allFiles.length === 0" class="text-center text-gray-500 mt-10">
+                            请先在“AI 去重”页点击“扫描”来加载文件库
+                        </div>
+                    </div>
+                    <div class="p-2 bg-gray-50 text-xs text-gray-500 border-t">
+                        显示 {{ filteredFiles.length }} / {{ allFiles.length }} 个文件 | 已选 {{ managerSelection.length }}
+                    </div>
+                </div>
+
+                <div class="w-80 flex flex-col gap-6">
+                    <div class="bg-white p-5 rounded-lg shadow-sm">
+                        <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-tags"></i> 批量修改标签
+                        </h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-xs text-gray-500">艺术家 (Artist)</label>
+                                <input type="text" v-model="metaEdit.artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-500">标题 (Title)</label>
+                                <input type="text" v-model="metaEdit.title" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                            </div>
+                            <div>
+                                <label class="text-xs text-gray-500">专辑 (Album)</label>
+                                <input type="text" v-model="metaEdit.album" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                            </div>
+                            <button @click="applyMetadata" :disabled="managerSelection.length === 0" 
+                                class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 disabled:opacity-50 text-sm">
+                                应用到 {{ managerSelection.length }} 个文件
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="bg-white p-5 rounded-lg shadow-sm">
+                        <h3 class="font-bold text-gray-700 mb-4 flex items-center gap-2">
+                            <i class="fa-solid fa-i-cursor"></i> 批量重命名
+                        </h3>
+                        <div class="space-y-3">
+                            <div>
+                                <label class="text-xs text-gray-500">命名模式</label>
+                                <input type="text" v-model="renamePattern" class="w-full border p-2 rounded text-sm">
+                                <div class="flex gap-1 mt-1 flex-wrap">
+                                    <span @click="renamePattern += '{artist}'" class="cursor-pointer px-2 py-0.5 bg-gray-200 rounded text-xs hover:bg-gray-300">{artist}</span>
+                                    <span @click="renamePattern += '{title}'" class="cursor-pointer px-2 py-0.5 bg-gray-200 rounded text-xs hover:bg-gray-300">{title}</span>
+                                    <span @click="renamePattern += '{album}'" class="cursor-pointer px-2 py-0.5 bg-gray-200 rounded text-xs hover:bg-gray-300">{album}</span>
+                                </div>
+                            </div>
+                            <div class="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                                预览: <span class="font-mono text-indigo-600">{{ previewRename }}</span>.mp3
+                            </div>
+                            <button @click="applyRename" :disabled="managerSelection.length === 0"
+                                class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm">
+                                重命名 {{ managerSelection.length }} 个文件
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </main>
     </div>
 
     <script>
@@ -140,29 +194,60 @@
         createApp({
             data() {
                 return {
-                    form: {
-                        apiKey: '',
-                        modelName: 'gemini-1.5-flash-002',
-                        proxyUrl: ''
-                    },
-                    availableModels: [], // 存储从后端获取的模型
+                    currentTab: 'dedupe',
+                    form: { apiKey: '', modelName: 'gemini-1.5-flash-002', proxyUrl: '' },
+                    availableModels: [],
                     config: { has_key: false, masked_key: '', model_name: '', proxy_url: '' },
                     status: { status: 'idle', message: '等待操作...', candidates_count: 0, progress: 0, total: 100 },
                     results: [],
-                    selectedFiles: [],
+                    selectedFiles: [], // 去重页面的选择
+                    
+                    // 文件管理相关
+                    allFiles: [],
+                    fileSearch: '',
+                    managerSelection: [], // 管理页面的选择
+                    metaEdit: { artist: '', title: '', album: '' },
+                    renamePattern: '{artist} - {title}',
+                    
                     pollInterval: null
                 }
             },
             computed: {
-                isBusy() {
-                    return this.status.status === 'scanning' || this.status.status === 'analyzing';
-                },
+                isBusy() { return this.status.status === 'scanning' || this.status.status === 'analyzing'; },
                 progressPercent() {
                     if (this.status.total === 0) return 0;
                     return Math.min(100, Math.round((this.status.progress / this.status.total) * 100));
                 },
-                showResults() {
-                    return this.results.length > 0 || this.status.status === 'done';
+                filteredFiles() {
+                    if (!this.fileSearch) return this.allFiles;
+                    const q = this.fileSearch.toLowerCase();
+                    return this.allFiles.filter(f => 
+                        f.filename.toLowerCase().includes(q) || 
+                        f.artist.toLowerCase().includes(q) || 
+                        f.title.toLowerCase().includes(q)
+                    );
+                },
+                isAllFilesSelected() {
+                    return this.filteredFiles.length > 0 && this.managerSelection.length === this.filteredFiles.length;
+                },
+                previewRename() {
+                    // 简单的预览逻辑，使用第一个选中的文件或示例数据
+                    let sample = {artist: 'Jay Chou', title: 'Sunny Day', album: 'Ye Hui Mei'};
+                    if (this.managerSelection.length > 0) {
+                        const file = this.allFiles.find(f => f.path === this.managerSelection[0]);
+                        if (file) sample = file;
+                    }
+                    return this.renamePattern
+                        .replace('{artist}', sample.artist || 'Unknown')
+                        .replace('{title}', sample.title || sample.filename)
+                        .replace('{album}', sample.album || 'Unknown');
+                }
+            },
+            watch: {
+                currentTab(newVal) {
+                    if (newVal === 'manager' && this.allFiles.length === 0) {
+                        this.refreshFiles();
+                    }
                 }
             },
             mounted() {
@@ -170,105 +255,94 @@
                 this.pollInterval = setInterval(this.pollStatus, 2000);
             },
             methods: {
-                getStatusText(s) {
-                    const map = {
-                        'idle': '空闲',
-                        'scanning': '正在扫描',
-                        'analyzing': 'AI 分析中',
-                        'done': '完成',
-                        'error': '错误'
-                    };
-                    return map[s] || s;
-                },
+                // ... (原有的配置和扫描方法保持不变) ...
                 async saveConfig() {
                     if(!this.form.apiKey) return alert("请输入 API Key");
                     try {
                         const res = await fetch('/api/config', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ 
-                                api_key: this.form.apiKey,
-                                model_name: this.form.modelName,
-                                proxy_url: this.form.proxyUrl 
-                            })
+                            body: JSON.stringify({ api_key: this.form.apiKey, model_name: this.form.modelName, proxy_url: this.form.proxyUrl })
                         });
-                        if(res.ok) {
-                            alert("配置已保存！");
-                            this.pollStatus();
-                            this.fetchModels(); // 保存后自动刷新模型列表
-                        }
+                        if(res.ok) { alert("配置已保存！"); this.pollStatus(); this.fetchModels(); }
                     } catch(e) { alert("保存失败: " + e); }
                 },
                 async fetchModels() {
-                    // 获取可用模型
                     try {
                         const res = await fetch('/api/models');
                         const data = await res.json();
-                        if (data.models && data.models.length > 0) {
-                            this.availableModels = data.models;
-                            console.log("Updated models:", this.availableModels);
-                        } else {
-                            alert("无法获取模型列表，请检查 API Key 和网络代理设置。");
-                        }
-                    } catch(e) {
-                        console.error("Failed to fetch models", e);
-                    }
+                        if (data.models) this.availableModels = data.models;
+                    } catch(e) {}
                 },
-                async startScan() {
-                    try { await fetch('/api/scan', { method: 'POST' }); } catch(e) { console.error(e); }
-                },
-                async startAnalyze() {
-                    try { await fetch('/api/analyze', { method: 'POST' }); } catch(e) { console.error(e); }
-                },
+                async startScan() { await fetch('/api/scan', { method: 'POST' }); },
+                async startAnalyze() { await fetch('/api/analyze', { method: 'POST' }); },
                 async pollStatus() {
                     try {
                         const res = await fetch('/api/status');
                         const data = await res.json();
-                        
-                        if (data.config && (!this.config.has_key || this.config.model_name !== data.config.model_name || this.config.proxy_url !== data.config.proxy_url)) {
+                        if (data.config && (!this.config.has_key || this.config.model_name !== data.config.model_name)) {
                             this.config = data.config;
                             if(!this.form.apiKey && data.config.has_key) this.form.apiKey = data.config.masked_key; 
                             if(data.config.model_name) this.form.modelName = data.config.model_name;
                             if(data.config.proxy_url) this.form.proxyUrl = data.config.proxy_url;
                         }
-
                         this.status = data;
-                        if (this.status.status === 'done' && this.results.length === 0) {
-                            await this.fetchResults();
-                        }
-                    } catch(e) { console.error("Polling error", e); }
+                        if (this.status.status === 'done' && this.results.length === 0) await this.fetchResults();
+                    } catch(e) {}
                 },
                 async fetchResults() {
                     const res = await fetch('/api/results');
                     const data = await res.json();
                     this.results = data.results;
                 },
-                isSelected(path) {
-                    return this.selectedFiles.includes(path);
-                },
+                // ... (原有选择和删除逻辑) ...
+                isSelected(path) { return this.selectedFiles.includes(path); },
                 toggleSelect(path) {
-                    if (this.isSelected(path)) {
-                        this.selectedFiles = this.selectedFiles.filter(p => p !== path);
-                    } else {
-                        this.selectedFiles.push(path);
-                    }
+                    if (this.isSelected(path)) this.selectedFiles = this.selectedFiles.filter(p => p !== path);
+                    else this.selectedFiles.push(path);
                 },
                 async deleteSelected() {
-                    if (!confirm(`确定要永久删除这 ${this.selectedFiles.length} 个文件吗？\n删除后不可恢复！`)) return;
-                    try {
-                        const res = await fetch('/api/delete', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ paths: this.selectedFiles })
-                        });
-                        const data = await res.json();
-                        alert(`成功删除: ${data.deleted.length} 个\n失败: ${data.failed.length} 个`);
-                        this.results.forEach(group => {
-                            group.files = group.files.filter(f => !data.deleted.includes(f.path));
-                        });
-                        this.results = this.results.filter(g => g.files.length > 1);
-                        this.selectedFiles = [];
-                    } catch(e) { alert("请求失败: " + e); }
+                    if (!confirm(`确定删除 ${this.selectedFiles.length} 个文件？`)) return;
+                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.selectedFiles }) });
+                    this.selectedFiles = [];
+                    this.fetchResults();
+                    this.refreshFiles(); // 同时也刷新文件列表
+                },
+
+                // === 文件管理新方法 ===
+                async refreshFiles() {
+                    const res = await fetch('/api/files');
+                    const data = await res.json();
+                    this.allFiles = data.files;
+                },
+                toggleSelectAllFiles() {
+                    if (this.isAllFilesSelected) {
+                        this.managerSelection = [];
+                    } else {
+                        this.managerSelection = this.filteredFiles.map(f => f.path);
+                    }
+                },
+                async applyMetadata() {
+                    if (!confirm(`确定修改 ${this.managerSelection.length} 个文件的标签吗？`)) return;
+                    const body = { paths: this.managerSelection, artist: this.metaEdit.artist || null, title: this.metaEdit.title || null, album: this.metaEdit.album || null };
+                    const res = await fetch('/api/update_meta', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
+                    const data = await res.json();
+                    alert(`已更新 ${data.updated} 个文件`);
+                    this.refreshFiles();
+                    this.managerSelection = [];
+                    this.metaEdit = {artist:'', title:'', album:''};
+                },
+                async applyRename() {
+                    if (!confirm(`确定重命名 ${this.managerSelection.length} 个文件吗？`)) return;
+                    const res = await fetch('/api/rename', { 
+                        method: 'POST', 
+                        headers: {'Content-Type': 'application/json'}, 
+                        body: JSON.stringify({ paths: this.managerSelection, pattern: this.renamePattern }) 
+                    });
+                    const data = await res.json();
+                    alert(`已重命名 ${data.renamed} 个文件`);
+                    this.refreshFiles();
+                    this.managerSelection = [];
                 }
             }
         }).mount('#app');
