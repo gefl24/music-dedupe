@@ -92,7 +92,7 @@ def get_metadata(path):
                 audio = MP3(path, ID3=EasyID3)
             except ID3NoHeaderError:
                 audio = MP3(path)
-                audio.add_tags() # 添加空标签
+                audio.add_tags()
             tags = audio
             duration = int(audio.info.length)
             bitrate = int(audio.info.bitrate / 1000)
@@ -102,11 +102,11 @@ def get_metadata(path):
             duration = int(audio.info.length)
             bitrate = int(audio.info.bitrate / 1000)
     except Exception as e:
-        print(f"Error reading {path}: {e}")
+        pass
     
     artist = tags.get('artist', [''])[0]
     title = tags.get('title', [''])[0]
-    album = tags.get('album', [''])[0] # ✅ 新增读取专辑
+    album = tags.get('album', [''])[0]
     
     if not artist and not title:
         base = os.path.splitext(filename)[0]
@@ -125,14 +125,13 @@ def get_metadata(path):
         "filename": filename,
         "artist": artist.strip(),
         "title": title.strip(),
-        "album": album.strip(), # ✅ 新增
+        "album": album.strip(),
         "duration": duration,
         "size_mb": size_mb,
         "bitrate": bitrate,
         "search_text": search_text 
     }
 
-# ✅ 新增：批量更新元数据
 def batch_update_metadata(file_paths, artist=None, title=None, album=None):
     updated_count = 0
     for path in file_paths:
@@ -151,7 +150,6 @@ def batch_update_metadata(file_paths, artist=None, title=None, album=None):
                 audio.save()
                 updated_count += 1
                 
-                # 更新内存中的缓存
                 for f in state.files:
                     if f['path'] == path:
                         if artist: f['artist'] = artist
@@ -162,25 +160,18 @@ def batch_update_metadata(file_paths, artist=None, title=None, album=None):
             print(f"Update tag error {path}: {e}")
     return updated_count
 
-# ✅ 新增：批量重命名
 def batch_rename_files(file_paths, pattern="{artist} - {title}"):
     renamed_count = 0
     for path in file_paths:
         if not os.path.exists(path): continue
-        
-        # 找到内存中的元数据
         meta = next((f for f in state.files if f['path'] == path), None)
-        if not meta: 
-            meta = get_metadata(path) # 如果缓存里没有，重新读一遍
+        if not meta: meta = get_metadata(path)
 
-        # 简单的安全检查
         safe_artist = meta['artist'].replace("/", "_").replace("\\", "_") or "Unknown"
         safe_title = meta['title'].replace("/", "_").replace("\\", "_") or meta['filename']
         safe_album = meta['album'].replace("/", "_").replace("\\", "_") or "Unknown"
 
         ext = os.path.splitext(path)[1]
-        
-        # 生成新文件名
         new_name = pattern.replace("{artist}", safe_artist)\
                           .replace("{title}", safe_title)\
                           .replace("{album}", safe_album) + ext
@@ -192,14 +183,52 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
             try:
                 os.rename(path, new_path)
                 renamed_count += 1
-                # 更新内存引用
                 if meta:
                     meta['path'] = new_path
                     meta['filename'] = new_name
             except OSError as e:
                 print(f"Rename failed: {e}")
-    
     return renamed_count
+
+# ✅ 新增：单曲 AI 修复
+def fix_single_metadata_ai(path):
+    if not state.api_key: return {"error": "API Key Missing"}
+    if not os.path.exists(path): return {"error": "File not found"}
+    
+    state.apply_proxy()
+    genai.configure(api_key=state.api_key)
+    model = genai.GenerativeModel(state.model_name)
+    
+    # 获取当前简陋的元数据
+    meta = get_metadata(path)
+    
+    prompt = f"""
+    I have a music file with filename: "{meta['filename']}".
+    Current Metadata - Artist: "{meta['artist']}", Title: "{meta['title']}".
+    
+    Please assume the role of a Music Tagger. 
+    1. Infer the correct Artist, Title, and Album from the filename and your knowledge base.
+    2. Correct any typos or missing information.
+    3. If it's a cover or live version mentioned in filename, keep that info in Title.
+    
+    Return JSON ONLY:
+    {{
+        "artist": "Correct Artist Name",
+        "title": "Correct Song Title",
+        "album": "Correct Album Name (or Single)"
+    }}
+    """
+    
+    try:
+        resp = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
+        ai_data = json.loads(resp.text)
+        
+        # 写入文件
+        batch_update_metadata([path], ai_data.get('artist'), ai_data.get('title'), ai_data.get('album'))
+        
+        return {"success": True, "data": ai_data}
+    except Exception as e:
+        return {"error": str(e)}
 
 def task_scan_and_group():
     state.status = "scanning"
@@ -224,7 +253,6 @@ def task_scan_and_group():
     state.files = temp_files
     state.message = "正在进行模糊聚类..."
     
-    # ... (保持原有的模糊聚类逻辑不变) ...
     sorted_files = sorted(state.files, key=lambda x: x['search_text'])
     candidates = []
     if not sorted_files:
@@ -248,7 +276,6 @@ def task_scan_and_group():
     state.message = f"扫描完成。发现 {len(state.candidates)} 组疑似重复。"
 
 def task_analyze_with_gemini():
-    # ... (保持原有的 task_analyze_with_gemini 逻辑完全不变) ...
     if not state.api_key:
         state.status = "error"
         state.message = "API Key 未配置"
@@ -322,6 +349,8 @@ def delete_file(path):
     try:
         if os.path.exists(path):
             os.remove(path)
+            # 同时从内存中移除
+            state.files = [f for f in state.files if f['path'] != path]
             return True
     except Exception as e:
         print(f"Delete error: {e}")
