@@ -31,7 +31,7 @@ class SingleFileRequest(BaseModel):
 class ScanRequest(BaseModel):
     path: Optional[str] = None
 
-# âœ… ä¿®æ”¹ï¼šä»»åŠ¡é…ç½®åŒ…å«ç›®æ ‡è·¯å¾„
+# ✅ 修改：任务配置包含目标路径
 class TaskConfigRequest(BaseModel):
     tasks: Dict[str, dict]
     target_path: str
@@ -56,7 +56,7 @@ async def get_status():
             "proxy_url": core.state.proxy_url,
             "music_dir": core.state.music_dir,
             "tasks_config": core.state.tasks_config,
-            "task_target_path": core.state.task_target_path # âœ… è¿”å›žå½“å‰ä»»åŠ¡è·¯å¾„
+            "task_target_path": core.state.task_target_path # ✅ 返回当前任务路径
         }
     }
 
@@ -78,13 +78,13 @@ async def get_dirs(path: Optional[str] = None):
 async def get_candidates():
     formatted = []
     for group in core.state.candidates:
-        formatted.append({"files": group, "reason": "æœ¬åœ°æ¨¡ç³ŠåŒ¹é… (ç–‘ä¼¼)"})
+        formatted.append({"files": group, "reason": "本地模糊匹配 (疑似)"})
     return {"results": formatted}
 
 @app.post("/api/tasks/config")
 async def update_tasks_config(req: TaskConfigRequest):
     core.state.tasks_config.update(req.tasks)
-    core.state.task_target_path = req.target_path # âœ… æ›´æ–°ä»»åŠ¡è·¯å¾„
+    core.state.task_target_path = req.target_path # ✅ 更新任务路径
     core.state.save_config()
     return {"status": "ok"}
 
