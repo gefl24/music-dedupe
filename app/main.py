@@ -14,6 +14,18 @@ class ConfigRequest(BaseModel):
 class DeleteRequest(BaseModel):
     paths: List[str]
 
+# ✅ 新增：元数据修改请求
+class MetadataRequest(BaseModel):
+    paths: List[str]
+    artist: Optional[str] = None
+    title: Optional[str] = None
+    album: Optional[str] = None
+
+# ✅ 新增：重命名请求
+class RenameRequest(BaseModel):
+    paths: List[str]
+    pattern: str # 例如 "{artist} - {title}"
+
 @app.get("/")
 async def index():
     return FileResponse("app/templates/index.html")
@@ -35,11 +47,26 @@ async def get_status():
         }
     }
 
-# ✅ 新增：获取模型列表的接口
 @app.get("/api/models")
 async def list_models():
     models = core.state.get_available_models()
     return {"models": models}
+
+# ✅ 新增：获取所有文件（用于文件管理 Tab）
+@app.get("/api/files")
+async def get_all_files():
+    # 为了性能，只返回前 2000 个，或者分页（这里简单返回所有，大库可能卡顿）
+    return {"files": core.state.files}
+
+@app.post("/api/update_meta")
+async def update_metadata(req: MetadataRequest):
+    count = core.batch_update_metadata(req.paths, req.artist, req.title, req.album)
+    return {"status": "ok", "updated": count}
+
+@app.post("/api/rename")
+async def rename_files(req: RenameRequest):
+    count = core.batch_rename_files(req.paths, req.pattern)
+    return {"status": "ok", "renamed": count}
 
 @app.post("/api/config")
 async def set_config(config: ConfigRequest):
