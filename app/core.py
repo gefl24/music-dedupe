@@ -8,7 +8,6 @@ from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
 from thefuzz import fuzz
 
-# 数据存储路径
 DATA_DIR = "/data"
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
@@ -16,7 +15,7 @@ class AppState:
     def __init__(self):
         self.api_key = ""
         self.model_name = "gemini-1.5-flash"
-        self.proxy_url = ""  # 代理地址
+        self.proxy_url = ""
         self.music_dir = "/music"
         self.status = "idle" 
         self.progress = 0
@@ -26,7 +25,7 @@ class AppState:
         self.candidates = []  
         self.results = []     
         self.load_config()
-        self.apply_proxy() # 初始化时应用代理
+        self.apply_proxy()
 
     def load_config(self):
         if os.path.exists(CONFIG_FILE):
@@ -49,12 +48,11 @@ class AppState:
                     "model_name": self.model_name,
                     "proxy_url": self.proxy_url
                 }, f)
-            self.apply_proxy() # 保存后立即应用
+            self.apply_proxy()
         except Exception as e:
             print(f"Error saving config: {e}")
 
     def apply_proxy(self):
-        """动态设置系统代理环境变量"""
         if self.proxy_url:
             print(f"Applying Proxy: {self.proxy_url}")
             os.environ['http_proxy'] = self.proxy_url
@@ -62,13 +60,35 @@ class AppState:
             os.environ['HTTP_PROXY'] = self.proxy_url
             os.environ['HTTPS_PROXY'] = self.proxy_url
         else:
-            # 如果为空，清除环境变量
             for key in ['http_proxy', 'https_proxy', 'HTTP_PROXY', 'HTTPS_PROXY']:
                 os.environ.pop(key, None)
 
+    # ✅ 新增：动态获取模型列表
+    def get_available_models(self):
+        if not self.api_key:
+            return []
+        
+        self.apply_proxy()
+        genai.configure(api_key=self.api_key)
+        models = []
+        try:
+            # 获取支持 generateContent 方法的模型
+            for m in genai.list_models():
+                if 'generateContent' in m.supported_generation_methods:
+                    # 去掉 'models/' 前缀，只保留名称，如 gemini-1.5-flash
+                    name = m.name.replace('models/', '')
+                    models.append(name)
+            return sorted(models)
+        except Exception as e:
+            print(f"List models error: {e}")
+            return []
+
 state = AppState()
 
+# ... (其余 get_metadata, task_scan_and_group 等函数完全保持不变，请直接保留原有的) ...
+
 def get_metadata(path):
+    # (保持原代码不变)
     filename = os.path.basename(path)
     size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
     tags = {}
@@ -91,7 +111,6 @@ def get_metadata(path):
     artist = tags.get('artist', [''])[0]
     title = tags.get('title', [''])[0]
     
-    # 尝试从文件名解析
     if not artist and not title:
         base = os.path.splitext(filename)[0]
         if " - " in base:
@@ -101,7 +120,6 @@ def get_metadata(path):
         else:
             title = base
 
-    # 构造用于模糊搜索的文本 (包含歌手、标题、文件名)
     search_text = f"{artist} {title} {filename}".lower()
 
     return {
@@ -139,7 +157,6 @@ def task_scan_and_group():
     state.files = temp_files
     state.message = "正在进行模糊聚类 (智能排序+相似度对比)..."
     
-    # 1. 排序
     sorted_files = sorted(state.files, key=lambda x: x['search_text'])
     
     candidates = []
@@ -149,17 +166,13 @@ def task_scan_and_group():
 
     current_group = [sorted_files[0]]
     
-    # 2. 模糊匹配相邻项
     for i in range(1, len(sorted_files)):
         prev = current_group[0] 
         curr = sorted_files[i]
-        
         state.progress = i
-        
-        # 使用 token_set_ratio 处理乱序和包含关系
         similarity = fuzz.token_set_ratio(prev['search_text'], curr['search_text'])
         
-        if similarity > 80: # 阈值 80
+        if similarity > 80:
             current_group.append(curr)
         else:
             if len(current_group) > 1:
@@ -179,7 +192,7 @@ def task_analyze_with_gemini():
         state.message = "API Key 未配置"
         return
 
-    state.apply_proxy() # 确保代理已应用
+    state.apply_proxy()
     state.status = "analyzing"
     state.results = []
     
@@ -200,7 +213,6 @@ def task_analyze_with_gemini():
             for idx, group in enumerate(batch):
                 prompt_data.append({
                     "group_id": i + idx,
-                    # 不发送 search_text 和 path 以节省 Token
                     "files": [{k: v for k, v in f.items() if k not in ['path', 'search_text']} for f in group]
                 })
 
