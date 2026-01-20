@@ -6,7 +6,6 @@ from . import core
 
 app = FastAPI()
 
-# ... (原有的 Request Models) ...
 class ConfigRequest(BaseModel):
     api_key: str
     model_name: str
@@ -32,9 +31,10 @@ class SingleFileRequest(BaseModel):
 class ScanRequest(BaseModel):
     path: Optional[str] = None
 
-# ✅ 新增：任务配置请求
+# ✅ 修改：任务配置包含目标路径
 class TaskConfigRequest(BaseModel):
     tasks: Dict[str, dict]
+    target_path: str
 
 @app.get("/")
 async def index():
@@ -55,11 +55,11 @@ async def get_status():
             "model_name": core.state.model_name,
             "proxy_url": core.state.proxy_url,
             "music_dir": core.state.music_dir,
-            "tasks_config": core.state.tasks_config # ✅ 返回任务配置
+            "tasks_config": core.state.tasks_config,
+            "task_target_path": core.state.task_target_path # ✅ 返回当前任务路径
         }
     }
 
-# ... (原有的 get_dirs, list_models, get_files 等保持不变) ...
 @app.get("/api/models")
 async def list_models():
     models = core.state.get_available_models()
@@ -81,16 +81,15 @@ async def get_candidates():
         formatted.append({"files": group, "reason": "本地模糊匹配 (疑似)"})
     return {"results": formatted}
 
-# ✅ 新增：任务相关接口
 @app.post("/api/tasks/config")
 async def update_tasks_config(req: TaskConfigRequest):
     core.state.tasks_config.update(req.tasks)
-    core.state.save_config() # 保存并重启调度器
+    core.state.task_target_path = req.target_path # ✅ 更新任务路径
+    core.state.save_config()
     return {"status": "ok"}
 
 @app.post("/api/tasks/run/{task_id}")
 async def run_task_manually(task_id: str):
-    # 在后台线程运行，避免阻塞 API
     import threading
     threading.Thread(target=core.run_task_wrapper, args=(task_id,)).start()
     return {"status": "started", "task": task_id}
@@ -99,7 +98,6 @@ async def run_task_manually(task_id: str):
 async def get_task_logs():
     return {"logs": core.state.task_logs}
 
-# ... (原有的 update_meta, fix_meta_single, rename, config, scan, analyze, delete 等保持不变) ...
 @app.post("/api/update_meta")
 async def update_metadata(req: MetadataRequest):
     count = core.batch_update_metadata(req.paths, req.artist, req.album_artist, req.title, req.album)
