@@ -10,17 +10,21 @@
     <style>
         .loading-spin { animation: spin 1s linear infinite; }
         @keyframes spin { 100% { transform: rotate(360deg); } }
+        
         /* 表格列宽优化 */
         .col-checkbox { width: 40px; }
         .col-action { width: 80px; text-align: center; }
-        .col-file { width: 200px; }
-        .col-meta { width: 150px; }
+        .col-file { width: 25%; } /* 文件名略宽 */
+        /* 其他列自适应 */
         
         /* 滚动条美化 */
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #f1f1f1; }
         ::-webkit-scrollbar-thumb { background: #c1c1c1; border-radius: 3px; }
         ::-webkit-scrollbar-thumb:hover { background: #a8a8a8; }
+        
+        /* 表格行高亮 */
+        tr.group:hover td { background-color: #eff6ff; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 h-screen flex flex-col">
@@ -34,19 +38,23 @@
                 <div class="flex gap-4">
                     <button @click="currentTab = 'manager'" 
                         :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'manager', 'text-gray-500': currentTab !== 'manager'}"
-                        class="px-4 py-2 font-medium transition">
+                        class="px-4 py-2 font-medium transition flex items-center gap-2">
                         <i class="fa-solid fa-folder-open"></i> 文件管理
                     </button>
                     <button @click="currentTab = 'dedupe'" 
                         :class="{'text-indigo-600 border-b-2 border-indigo-600': currentTab === 'dedupe', 'text-gray-500': currentTab !== 'dedupe'}"
-                        class="px-4 py-2 font-medium transition">
+                        class="px-4 py-2 font-medium transition flex items-center gap-2">
                         <i class="fa-solid fa-clone"></i> AI 去重
                     </button>
                 </div>
 
-                <div class="text-sm">
-                    <span v-if="config.has_key" class="text-green-600 font-bold"><i class="fa-solid fa-check-circle"></i> {{ config.model_name }}</span>
-                    <span v-else class="text-red-500"><i class="fa-solid fa-exclamation-triangle"></i> 未配置 API</span>
+                <div class="text-sm flex items-center gap-2">
+                    <span v-if="config.has_key" class="text-green-600 font-bold flex items-center gap-1">
+                        <i class="fa-solid fa-check-circle"></i> {{ config.model_name }}
+                    </span>
+                    <span v-else class="text-red-500 flex items-center gap-1">
+                        <i class="fa-solid fa-exclamation-triangle"></i> 未配置 API
+                    </span>
                 </div>
             </div>
         </header>
@@ -57,83 +65,103 @@
                 
                 <div class="w-72 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden shrink-0">
                     <div class="p-3 border-b bg-gray-50 font-bold text-gray-700 text-sm flex justify-between items-center">
-                        <span><i class="fa-solid fa-folder-tree"></i> 文件夹</span>
-                        <button @click="fetchDirs" title="刷新目录树" class="text-gray-500 hover:text-indigo-600"><i class="fa-solid fa-sync"></i></button>
+                        <span class="truncate pr-2" :title="currentNavPath || '根目录'">
+                            <i class="fa-solid fa-folder-tree mr-1"></i> {{ currentNavPathName }}
+                        </span>
+                        <div class="flex gap-1">
+                            <button v-if="!isNavRoot" @click="fetchDirs(parentNavPath)" title="返回上级" class="text-gray-500 hover:text-indigo-600 p-1">
+                                <i class="fa-solid fa-level-up-alt"></i>
+                            </button>
+                            <button @click="fetchDirs(currentNavPath)" title="刷新目录" class="text-gray-500 hover:text-indigo-600 p-1">
+                                <i class="fa-solid fa-sync"></i>
+                            </button>
+                        </div>
                     </div>
+                    
                     <div class="flex-1 overflow-y-auto p-2 text-sm">
                         <div 
                             @click="selectFolder('')"
                             class="cursor-pointer px-3 py-2 rounded mb-1 flex justify-between items-center hover:bg-gray-100 transition"
                             :class="{'bg-indigo-50 text-indigo-700 font-bold': currentFolder === ''}">
-                            <span><i class="fa-solid fa-music mr-2"></i> 全部已加载</span>
+                            <span><i class="fa-solid fa-music mr-2 text-gray-400"></i> 全部已加载</span>
                             <span class="text-xs bg-gray-200 px-1.5 rounded-full text-gray-600">{{ allFiles.length }}</span>
                         </div>
                         
                         <hr class="my-2 border-gray-100">
 
-                        <div v-for="dir in dirStructure" :key="dir.path"
+                        <div v-if="subDirs.length === 0" class="text-center text-gray-400 py-4 italic text-xs">
+                            此目录下无子文件夹
+                        </div>
+                        
+                        <div v-for="dir in subDirs" :key="dir.path"
                             class="group flex items-center justify-between px-3 py-2 rounded mb-1 hover:bg-gray-100 transition"
-                            :class="{'bg-indigo-50': currentFolder === dir.path}">
+                            :class="{'bg-indigo-50': filterFolder === dir.path}">
                             
-                            <div @click="selectFolder(dir.path)" class="flex-1 cursor-pointer truncate mr-2" :title="dir.path">
-                                <i class="fa-regular fa-folder mr-2 text-yellow-500"></i> 
-                                <span :class="{'text-indigo-700 font-bold': currentFolder === dir.path}">{{ dir.name }}</span>
+                            <div @click="fetchDirs(dir.path)" class="flex-1 cursor-pointer truncate mr-2 text-gray-700 hover:text-indigo-700 select-none">
+                                <i class="fa-regular fa-folder mr-2 text-yellow-500"></i> {{ dir.name }}
                             </div>
                             
                             <button @click.stop="scanFolder(dir.path)" 
                                 :disabled="isBusy"
-                                title="扫描此文件夹元数据"
-                                class="text-gray-300 hover:text-blue-600 p-1 rounded">
+                                title="扫描此文件夹"
+                                class="text-gray-300 hover:text-blue-600 p-1 rounded transition-colors">
                                 <i class="fa-solid fa-magnifying-glass" :class="{'text-blue-500 loading-spin': isScanningPath === dir.path}"></i>
                             </button>
                         </div>
                     </div>
-                    <div v-if="isBusy" class="p-2 bg-blue-50 text-xs text-blue-700 border-t">
-                        <i class="fa-solid fa-circle-notch loading-spin"></i> {{ status.message }}
+                    
+                    <div v-if="isBusy" class="p-2 bg-blue-50 text-xs text-blue-700 border-t flex items-center gap-2">
+                        <i class="fa-solid fa-circle-notch loading-spin"></i>
+                        <span class="truncate">{{ status.message }}</span>
                     </div>
                 </div>
 
                 <div class="flex-1 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden min-w-0">
                     <div class="p-4 border-b flex gap-3 items-center flex-wrap">
-                        <input type="text" v-model="fileSearch" placeholder="搜索..." class="flex-1 border p-2 rounded text-sm min-w-[150px]">
+                        <div class="relative flex-1 min-w-[200px]">
+                            <i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-xs"></i>
+                            <input type="text" v-model="fileSearch" placeholder="搜索文件名、歌手..." class="w-full border p-2 pl-8 rounded text-sm focus:outline-none focus:border-indigo-500">
+                        </div>
                         
-                        <select v-model.number="pageSize" @change="currentPage = 1" class="border p-2 rounded text-sm w-28">
+                        <select v-model.number="pageSize" @change="currentPage = 1" class="border p-2 rounded text-sm w-28 bg-white focus:outline-none">
                             <option :value="50">50条/页</option>
                             <option :value="100">100条/页</option>
                             <option :value="300">300条/页</option>
                             <option :value="500">500条/页</option>
                         </select>
                         
-                        <button @click="refreshFiles" class="bg-gray-100 px-3 py-2 rounded hover:bg-gray-200"><i class="fa-solid fa-sync"></i></button>
+                        <button @click="refreshFiles" title="刷新列表" class="bg-gray-100 px-3 py-2 rounded hover:bg-gray-200 text-gray-600 transition">
+                            <i class="fa-solid fa-sync"></i>
+                        </button>
                     </div>
 
-                    <div class="flex-1 overflow-y-auto p-2">
-                        <table class="w-full text-sm text-left table-fixed">
-                            <thead class="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-600">
+                    <div class="flex-1 overflow-y-auto">
+                        <table class="w-full text-sm text-left table-fixed border-collapse">
+                            <thead class="bg-gray-50 sticky top-0 shadow-sm z-10 text-gray-600 text-xs uppercase tracking-wider">
                                 <tr>
-                                    <th class="p-2 col-checkbox"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected"></th>
-                                    <th class="p-2 col-action">操作</th>
-                                    <th class="p-2 col-file">文件名</th>
-                                    <th class="p-2 col-meta">标题</th>
-                                    <th class="p-2 col-meta">艺术家</th>
-                                    <th class="p-2 col-meta">专辑</th>
-                                    <th class="p-2 col-meta">专辑艺术家</th>
+                                    <th class="p-2 col-checkbox border-b"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected" class="rounded"></th>
+                                    <th class="p-2 col-action border-b">操作</th>
+                                    <th class="p-2 col-file border-b">文件名</th>
+                                    <th class="p-2 border-b">标题</th>
+                                    <th class="p-2 border-b">艺术家</th>
+                                    <th class="p-2 border-b">专辑</th>
+                                    <th class="p-2 border-b">专辑艺术家</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                <tr v-for="file in paginatedFiles" :key="file.path" class="border-b hover:bg-blue-50 group">
-                                    <td class="p-2"><input type="checkbox" :value="file.path" v-model="managerSelection"></td>
-                                    <td class="p-2 flex justify-center gap-2">
+                            <tbody class="divide-y divide-gray-100">
+                                <tr v-for="file in paginatedFiles" :key="file.path" class="group transition-colors">
+                                    <td class="p-2 text-center bg-inherit"><input type="checkbox" :value="file.path" v-model="managerSelection" class="rounded"></td>
+                                    <td class="p-2 flex justify-center gap-3 bg-inherit">
                                         <button @click="fixSingleAI(file)" title="AI 智能修复" 
-                                            class="text-indigo-400 hover:text-indigo-600 disabled:opacity-30">
+                                            class="text-indigo-400 hover:text-indigo-600 disabled:opacity-30 transition">
                                             <i class="fa-solid fa-wand-magic-sparkles" :class="{'loading-spin': loadingFiles[file.path]}"></i>
                                         </button>
                                         <button @click="deleteOne(file)" title="删除文件" 
-                                            class="text-red-300 hover:text-red-600">
-                                            <i class="fa-solid fa-trash"></i>
+                                            class="text-gray-400 hover:text-red-600 transition">
+                                            <i class="fa-solid fa-trash-alt"></i>
                                         </button>
                                     </td>
-                                    <td class="p-2 truncate text-gray-700" :title="file.filename">{{ file.filename }}</td>
+                                    <td class="p-2 truncate font-medium text-gray-700" :title="file.filename">{{ file.filename }}</td>
                                     <td class="p-2 truncate text-gray-500" :title="file.title">{{ file.title }}</td>
                                     <td class="p-2 truncate text-gray-500" :title="file.artist">{{ file.artist }}</td>
                                     <td class="p-2 truncate text-gray-500" :title="file.album">{{ file.album }}</td>
@@ -142,83 +170,92 @@
                             </tbody>
                         </table>
                         
-                        <div v-if="allFiles.length === 0" class="text-center text-gray-500 mt-10">
-                            <p class="mb-2">暂无已加载的元数据</p>
-                            <p class="text-xs">请点击左侧文件夹旁的 <i class="fa-solid fa-magnifying-glass text-blue-500"></i> 图标进行扫描</p>
+                        <div v-if="allFiles.length === 0" class="flex flex-col items-center justify-center h-64 text-gray-400">
+                            <i class="fa-solid fa-music text-4xl mb-4 text-gray-200"></i>
+                            <p class="mb-2">列表为空</p>
+                            <p class="text-xs">请点击左侧文件夹旁的 <i class="fa-solid fa-magnifying-glass text-blue-500"></i> 图标加载文件</p>
                         </div>
                     </div>
 
-                    <div class="p-2 bg-gray-50 text-xs text-gray-500 border-t flex justify-between items-center">
+                    <div class="p-2 bg-gray-50 text-xs text-gray-500 border-t flex justify-between items-center shrink-0">
                         <div>
-                            显示 {{ paginatedFiles.length }} / 共 {{ filteredFiles.length }} (总缓存 {{ allFiles.length }}) | 已选 {{ managerSelection.length }}
+                            显示 {{ paginatedFiles.length }} / {{ filteredFiles.length }} (总 {{ allFiles.length }}) | 已选 <span class="font-bold text-indigo-600">{{ managerSelection.length }}</span>
                         </div>
+                        
                         <div class="flex gap-2 items-center" v-if="totalPages > 1">
-                            <button @click="currentPage--" :disabled="currentPage === 1" class="px-2 py-1 bg-white border rounded disabled:opacity-50">上一页</button>
-                            <span>{{ currentPage }} / {{ totalPages }}</span>
-                            <button @click="currentPage++" :disabled="currentPage === totalPages" class="px-2 py-1 bg-white border rounded disabled:opacity-50">下一页</button>
+                            <button @click="currentPage--" :disabled="currentPage === 1" 
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fa-solid fa-chevron-left"></i>
+                            </button>
+                            <span class="min-w-[3rem] text-center">{{ currentPage }} / {{ totalPages }}</span>
+                            <button @click="currentPage++" :disabled="currentPage === totalPages" 
+                                class="px-2 py-1 bg-white border rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <i class="fa-solid fa-chevron-right"></i>
+                            </button>
                         </div>
                     </div>
                 </div>
 
-                <div class="w-72 flex flex-col gap-4 overflow-y-auto shrink-0">
+                <div class="w-72 flex flex-col gap-4 overflow-y-auto shrink-0 pb-4">
                     <div v-if="managerSelection.length > 0" class="bg-red-50 p-4 rounded-lg border border-red-100 shadow-sm animate-pulse">
-                        <h3 class="font-bold text-red-700 mb-2 flex items-center gap-2">
+                        <h3 class="font-bold text-red-700 mb-2 flex items-center gap-2 text-sm">
                             <i class="fa-solid fa-trash-can"></i> 危险操作
                         </h3>
                         <button @click="deleteManagerSelection" 
-                            class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 text-sm shadow">
+                            class="w-full bg-red-600 text-white py-2 rounded hover:bg-red-700 text-sm shadow transition">
                             删除选中的 {{ managerSelection.length }} 个文件
                         </button>
                     </div>
 
-                    <div class="bg-white p-4 rounded-lg shadow-sm border">
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
                         <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2 text-sm">
-                            <i class="fa-solid fa-tags"></i> 批量修改标签
+                            <i class="fa-solid fa-tags text-indigo-500"></i> 批量修改标签
                         </h3>
                         <div class="space-y-3">
                             <div>
-                                <label class="text-xs text-gray-500">艺术家 (Artist)</label>
-                                <input type="text" v-model="metaEdit.artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                                <label class="text-xs text-gray-400 mb-1 block">艺术家 (Artist)</label>
+                                <input type="text" v-model="metaEdit.artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
-                                <label class="text-xs text-gray-500">专辑艺术家 (Album Artist)</label>
-                                <input type="text" v-model="metaEdit.album_artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                                <label class="text-xs text-gray-400 mb-1 block">专辑艺术家 (Album Artist)</label>
+                                <input type="text" v-model="metaEdit.album_artist" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
-                                <label class="text-xs text-gray-500">标题 (Title)</label>
-                                <input type="text" v-model="metaEdit.title" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                                <label class="text-xs text-gray-400 mb-1 block">标题 (Title)</label>
+                                <input type="text" v-model="metaEdit.title" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <div>
-                                <label class="text-xs text-gray-500">专辑 (Album)</label>
-                                <input type="text" v-model="metaEdit.album" placeholder="保持原样" class="w-full border p-2 rounded text-sm">
+                                <label class="text-xs text-gray-400 mb-1 block">专辑 (Album)</label>
+                                <input type="text" v-model="metaEdit.album" placeholder="保持原样" class="w-full border p-2 rounded text-sm focus:border-indigo-500 focus:outline-none">
                             </div>
                             <button @click="applyMetadata" :disabled="managerSelection.length === 0" 
-                                class="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700 disabled:opacity-50 text-sm">
-                                应用到 {{ managerSelection.length }} 个文件
+                                class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 disabled:opacity-50 disabled:bg-gray-400 text-sm transition mt-1">
+                                应用修改
                             </button>
                         </div>
                     </div>
 
-                    <div class="bg-white p-4 rounded-lg shadow-sm border">
+                    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
                         <h3 class="font-bold text-gray-700 mb-3 flex items-center gap-2 text-sm">
-                            <i class="fa-solid fa-i-cursor"></i> 批量重命名
+                            <i class="fa-solid fa-i-cursor text-blue-500"></i> 批量重命名
                         </h3>
                         <div class="space-y-3">
                             <div>
-                                <label class="text-xs text-gray-500">命名模式</label>
-                                <input type="text" v-model="renamePattern" class="w-full border p-2 rounded text-sm">
-                                <div class="flex gap-1 mt-1 flex-wrap">
-                                    <span @click="renamePattern += '{artist}'" class="cursor-pointer px-2 py-0.5 bg-gray-200 rounded text-xs hover:bg-gray-300">{artist}</span>
-                                    <span @click="renamePattern += '{album_artist}'" class="cursor-pointer px-2 py-0.5 bg-gray-200 rounded text-xs hover:bg-gray-300">{album_artist}</span>
-                                    <span @click="renamePattern += '{title}'" class="cursor-pointer px-2 py-0.5 bg-gray-200 rounded text-xs hover:bg-gray-300">{title}</span>
+                                <label class="text-xs text-gray-400 mb-1 block">命名模式</label>
+                                <input type="text" v-model="renamePattern" class="w-full border p-2 rounded text-sm font-mono text-xs focus:border-blue-500 focus:outline-none">
+                                <div class="flex gap-1 mt-2 flex-wrap">
+                                    <button @click="renamePattern += '{artist}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{artist}</button>
+                                    <button @click="renamePattern += '{album_artist}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{album_artist}</button>
+                                    <button @click="renamePattern += '{title}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{title}</button>
+                                    <button @click="renamePattern += '{album}'" class="px-2 py-1 bg-gray-100 rounded text-xs hover:bg-gray-200 border text-gray-600">{album}</button>
                                 </div>
                             </div>
-                            <div class="text-xs text-gray-500 bg-gray-50 p-2 rounded break-all">
-                                预览: <span class="font-mono text-indigo-600">{{ previewRename }}</span>.mp3
+                            <div class="text-xs text-gray-500 bg-gray-50 p-2 rounded border break-all">
+                                <span class="font-bold">预览:</span> <span class="font-mono text-blue-600">{{ previewRename }}</span>.mp3
                             </div>
                             <button @click="applyRename" :disabled="managerSelection.length === 0"
-                                class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 text-sm">
-                                重命名 {{ managerSelection.length }} 个文件
+                                class="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700 disabled:opacity-50 disabled:bg-gray-400 text-sm transition">
+                                开始重命名
                             </button>
                         </div>
                     </div>
@@ -227,59 +264,90 @@
 
             <div v-else class="h-full overflow-y-auto pr-2">
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                    <div class="bg-white p-5 rounded-lg shadow-sm">
-                        <h2 class="font-bold mb-3 text-gray-700">配置</h2>
-                        <div class="space-y-3">
-                            <input type="password" v-model="form.apiKey" placeholder="Gemini API Key" class="w-full border p-2 rounded text-sm">
-                            <div class="flex gap-2">
-                                <input list="model-list" v-model="form.modelName" placeholder="模型名称" class="w-full border p-2 rounded text-sm">
-                                <datalist id="model-list"><option v-for="m in availableModels" :value="m">{{ m }}</option></datalist>
-                                <button @click="fetchModels" class="bg-gray-200 px-3 rounded text-gray-600"><i class="fa-solid fa-sync"></i></button>
+                    <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
+                        <h2 class="font-bold mb-4 text-gray-700 border-b pb-2">系统配置</h2>
+                        <div class="space-y-4">
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">Gemini API Key</label>
+                                <input type="password" v-model="form.apiKey" placeholder="输入 Key" class="w-full border p-2 rounded text-sm focus:outline-none focus:border-indigo-500">
                             </div>
-                            <input type="text" v-model="form.proxyUrl" placeholder="HTTP 代理 (http://IP:PORT)" class="w-full border p-2 rounded text-sm">
-                            <button @click="saveConfig" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 text-sm">保存配置</button>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">模型名称</label>
+                                <div class="flex gap-2">
+                                    <input list="model-list" v-model="form.modelName" placeholder="例如 gemini-1.5-flash" class="w-full border p-2 rounded text-sm focus:outline-none focus:border-indigo-500">
+                                    <datalist id="model-list"><option v-for="m in availableModels" :value="m">{{ m }}</option></datalist>
+                                    <button @click="fetchModels" class="bg-gray-100 px-3 rounded hover:bg-gray-200 text-gray-600"><i class="fa-solid fa-sync"></i></button>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-gray-500 mb-1">HTTP 代理</label>
+                                <input type="text" v-model="form.proxyUrl" placeholder="http://..." class="w-full border p-2 rounded text-sm focus:outline-none focus:border-indigo-500">
+                            </div>
+                            <button @click="saveConfig" class="w-full bg-indigo-600 text-white py-2 rounded hover:bg-indigo-700 text-sm transition">保存配置</button>
                         </div>
                     </div>
                     
-                    <div class="bg-white p-5 rounded-lg shadow-sm flex flex-col justify-between">
+                    <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100 flex flex-col justify-between">
                         <div>
-                            <h2 class="font-bold mb-3 text-gray-700">任务控制</h2>
-                            <p class="text-sm text-gray-500 mb-4">{{ status.message }}</p>
-                            <div v-if="isBusy" class="w-full bg-gray-200 rounded-full h-2 mb-4">
-                                <div class="bg-blue-600 h-2 rounded-full transition-all" :style="{ width: progressPercent + '%' }"></div>
+                            <h2 class="font-bold mb-4 text-gray-700 border-b pb-2">去重任务</h2>
+                            <div class="bg-gray-50 p-4 rounded border border-gray-100 mb-4">
+                                <div class="flex justify-between text-sm text-gray-600 mb-2">
+                                    <span class="font-medium"><i class="fa-solid fa-info-circle text-blue-500"></i> 状态: {{ status.status }}</span>
+                                    <span v-if="status.total > 0">{{ status.progress }} / {{ status.total }}</span>
+                                </div>
+                                <p class="text-xs text-gray-500 mb-2 h-10 overflow-hidden">{{ status.message }}</p>
+                                <div class="w-full bg-gray-200 rounded-full h-1.5 overflow-hidden">
+                                    <div class="bg-blue-500 h-1.5 rounded-full transition-all duration-300" :style="{ width: progressPercent + '%' }"></div>
+                                </div>
                             </div>
                         </div>
                         <div class="flex gap-3">
-                            <button @click="startScanAll" :disabled="isBusy" class="flex-1 bg-blue-500 text-white py-3 rounded hover:bg-blue-600 disabled:opacity-50">
-                                1. 全量扫描 (模糊匹配)
+                            <button @click="startScanAll" :disabled="isBusy" 
+                                class="flex-1 bg-white border border-blue-500 text-blue-600 py-2 rounded hover:bg-blue-50 disabled:opacity-50 transition">
+                                1. 全量扫描
                             </button>
-                            <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="flex-1 bg-purple-500 text-white py-3 rounded hover:bg-purple-600 disabled:opacity-50">
+                            <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" 
+                                class="flex-1 bg-purple-600 text-white py-2 rounded hover:bg-purple-700 disabled:opacity-50 transition shadow-sm">
                                 2. AI 智能分析
                             </button>
                         </div>
                     </div>
                 </div>
 
-                <div v-if="results.length > 0" class="bg-white rounded-lg shadow-sm p-6">
+                <div v-if="results.length > 0" class="bg-white rounded-lg shadow-sm p-6 border border-gray-100">
                     <div class="flex justify-between items-center mb-4">
-                        <h3 class="font-bold text-lg">
-                            {{ isAiResult ? 'AI 分析结果' : '疑似重复列表 (可手动删除)' }} ({{ results.length }} 组)
+                        <h3 class="font-bold text-lg text-gray-800">
+                            {{ isAiResult ? 'AI 分析结果' : '疑似重复 (模糊匹配)' }} 
+                            <span class="bg-gray-100 text-gray-600 text-sm px-2 py-1 rounded ml-2">{{ results.length }} 组</span>
                         </h3>
-                        <button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700">
+                        <button v-if="selectedFiles.length > 0" @click="deleteSelected" class="bg-red-600 text-white px-4 py-2 rounded text-sm hover:bg-red-700 shadow transition">
                             删除选中 ({{ selectedFiles.length }})
                         </button>
                     </div>
-                    <div v-for="(group, idx) in results" :key="idx" class="border rounded mb-4 p-4 bg-gray-50">
-                        <div class="text-sm text-yellow-700 bg-yellow-100 p-2 rounded mb-2"><i class="fa-solid fa-lightbulb"></i> {{ group.reason }}</div>
-                        <div class="space-y-1">
-                            <div v-for="file in group.files" :key="file.path" 
-                                @click="toggleSelect(file.path)"
-                                class="flex items-center gap-3 p-2 bg-white border rounded cursor-pointer hover:border-blue-400"
-                                :class="{'ring-2 ring-red-500 border-red-500': isSelected(file.path)}">
-                                <i :class="isSelected(file.path) ? 'fa-regular fa-square-check text-red-500' : 'fa-regular fa-square text-gray-300'"></i>
-                                <div class="text-sm overflow-hidden">
-                                    <div class="font-bold">{{ file.filename }}</div>
-                                    <div class="text-gray-500 text-xs">{{ file.size_mb }}MB | {{ file.bitrate }}kbps | {{ file.path }}</div>
+                    
+                    <div class="space-y-4">
+                        <div v-for="(group, idx) in results" :key="idx" class="border rounded-lg p-4 bg-gray-50 hover:shadow-sm transition">
+                            <div class="text-xs font-bold text-yellow-700 bg-yellow-100 p-2 rounded mb-3 inline-block">
+                                <i class="fa-solid fa-lightbulb"></i> {{ group.reason }}
+                            </div>
+                            <div class="space-y-2">
+                                <div v-for="file in group.files" :key="file.path" 
+                                    @click="toggleSelect(file.path)"
+                                    class="flex items-center gap-3 p-3 bg-white border rounded cursor-pointer hover:border-indigo-300 transition"
+                                    :class="{'ring-2 ring-red-500 border-red-500 bg-red-50': isSelected(file.path)}">
+                                    
+                                    <div class="w-6 text-center">
+                                        <i :class="isSelected(file.path) ? 'fa-regular fa-square-check text-red-500 text-lg' : 'fa-regular fa-square text-gray-300 text-lg'"></i>
+                                    </div>
+                                    
+                                    <div class="flex-1 overflow-hidden">
+                                        <div class="font-bold text-gray-800 truncate">{{ file.filename }}</div>
+                                        <div class="text-gray-500 text-xs flex gap-2 mt-1">
+                                            <span class="bg-gray-100 px-1.5 rounded">{{ file.size_mb }} MB</span>
+                                            <span class="bg-gray-100 px-1.5 rounded">{{ file.bitrate }} kbps</span>
+                                            <span class="text-gray-400 truncate">{{ file.path }}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -296,282 +364,128 @@
         createApp({
             data() {
                 return {
-                    currentTab: 'manager', // ✅ 默认首页
+                    currentTab: 'manager',
                     form: { apiKey: '', modelName: 'gemini-1.5-flash-002', proxyUrl: '' },
                     availableModels: [],
                     config: { has_key: false, masked_key: '', model_name: '', proxy_url: '', music_dir: '' },
                     status: { status: 'idle', message: '等待操作...', candidates_count: 0, progress: 0, total: 100 },
-                    results: [],
-                    selectedFiles: [], 
-                    isAiResult: false,
+                    results: [], selectedFiles: [], isAiResult: false,
 
-                    // 文件管理相关
+                    // 文件管理
                     allFiles: [],
-                    dirStructure: [], // ✅ 目录结构
+                    subDirs: [], // 当前目录下的子文件夹
+                    currentNavPath: '', // 当前浏览的路径
+                    isNavRoot: true,
+                    parentNavPath: '',
+                    
                     fileSearch: '',
-                    currentFolder: '', 
+                    filterFolder: '', // 当前聚焦的文件夹（用于扫描后）
                     managerSelection: [],
                     metaEdit: { artist: '', album_artist: '', title: '', album: '' },
                     renamePattern: '{artist} - {title}',
                     
-                    currentPage: 1,
-                    pageSize: 50,
-                    loadingFiles: {},
-                    isScanningPath: null, // 当前正在扫描的文件夹
-                    pollInterval: null
+                    currentPage: 1, pageSize: 50, loadingFiles: {}, isScanningPath: null, pollInterval: null
                 }
             },
             computed: {
                 isBusy() { return this.status.status === 'scanning' || this.status.status === 'analyzing'; },
-                progressPercent() {
-                    if (this.status.total === 0) return 0;
-                    return Math.min(100, Math.round((this.status.progress / this.status.total) * 100));
+                progressPercent() { if (this.status.total === 0) return 0; return Math.min(100, Math.round((this.status.progress / this.status.total) * 100)); },
+                currentNavPathName() { 
+                    if (!this.currentNavPath || (this.config.music_dir && this.currentNavPath === this.config.music_dir)) return '根目录'; 
+                    return this.currentNavPath.split('/').pop(); 
                 },
                 filteredFiles() {
                     let files = this.allFiles;
-                    
-                    // 1. 文件夹筛选 (匹配路径前缀)
-                    if (this.currentFolder) {
-                        files = files.filter(f => f.path.startsWith(this.currentFolder));
-                    }
-
-                    // 2. 关键词搜索
+                    if (this.filterFolder) files = files.filter(f => f.path.startsWith(this.filterFolder));
                     if (this.fileSearch) {
                         const q = this.fileSearch.toLowerCase();
-                        files = files.filter(f => 
-                            f.filename.toLowerCase().includes(q) || 
-                            f.artist.toLowerCase().includes(q) || 
-                            f.album_artist.toLowerCase().includes(q) || 
-                            f.title.toLowerCase().includes(q)
-                        );
+                        files = files.filter(f => f.filename.toLowerCase().includes(q) || f.artist.toLowerCase().includes(q) || f.title.toLowerCase().includes(q));
                     }
                     return files;
                 },
                 paginatedFiles() {
                     const start = (this.currentPage - 1) * this.pageSize;
-                    const end = start + this.pageSize;
-                    return this.filteredFiles.slice(start, end);
+                    return this.filteredFiles.slice(start, start + this.pageSize);
                 },
-                totalPages() {
-                    return Math.ceil(this.filteredFiles.length / this.pageSize);
-                },
-                isAllFilesSelected() {
-                    return this.paginatedFiles.length > 0 && this.paginatedFiles.every(f => this.managerSelection.includes(f.path));
-                },
+                totalPages() { return Math.ceil(this.filteredFiles.length / this.pageSize); },
+                isAllFilesSelected() { return this.paginatedFiles.length > 0 && this.paginatedFiles.every(f => this.managerSelection.includes(f.path)); },
                 previewRename() {
                     let sample = {artist: 'Jay Chou / Gary', album_artist: 'Jay', title: 'Sunny Day', album: 'Ye Hui Mei'};
-                    if (this.managerSelection.length > 0) {
-                        const file = this.allFiles.find(f => f.path === this.managerSelection[0]);
-                        if (file) sample = file;
-                    }
+                    if (this.managerSelection.length > 0) { const file = this.allFiles.find(f => f.path === this.managerSelection[0]); if (file) sample = file; }
                     const format = (s) => (s || 'Unknown').replace(/ \/ /g, ' & ').replace(/\//g, ' & ');
-                    return this.renamePattern
-                        .replace('{artist}', format(sample.artist))
-                        .replace('{album_artist}', format(sample.album_artist))
-                        .replace('{title}', format(sample.title || sample.filename))
-                        .replace('{album}', format(sample.album));
+                    return this.renamePattern.replace('{artist}', format(sample.artist)).replace('{album_artist}', format(sample.album_artist)).replace('{title}', format(sample.title || sample.filename)).replace('{album}', format(sample.album));
                 }
             },
             watch: {
-                currentTab(newVal) {
-                    if (newVal === 'manager') {
-                        this.fetchDirs();
-                        if (this.allFiles.length === 0) this.refreshFiles();
-                    }
-                },
+                currentTab(newVal) { if (newVal === 'manager') { this.fetchDirs(); if (this.allFiles.length === 0) this.refreshFiles(); } },
                 fileSearch() { this.currentPage = 1; },
-                currentFolder() { this.currentPage = 1; }
+                filterFolder() { this.currentPage = 1; }
             },
             mounted() {
-                this.pollStatus();
-                this.pollInterval = setInterval(this.pollStatus, 2000);
-                this.fetchDirs(); // 启动时加载目录树
+                this.pollStatus(); this.pollInterval = setInterval(this.pollStatus, 2000); this.fetchDirs();
             },
             methods: {
-                // ... 配置相关 ...
-                async saveConfig() {
-                    if(!this.form.apiKey) return alert("请输入 API Key");
-                    try {
-                        const res = await fetch('/api/config', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ api_key: this.form.apiKey, model_name: this.form.modelName, proxy_url: this.form.proxyUrl })
-                        });
-                        if(res.ok) { alert("配置已保存！"); this.pollStatus(); this.fetchModels(); }
-                    } catch(e) { alert("保存失败: " + e); }
-                },
-                async fetchModels() {
-                    try {
-                        const res = await fetch('/api/models');
-                        const data = await res.json();
-                        if (data.models) this.availableModels = data.models;
-                    } catch(e) {}
-                },
+                async saveConfig() { try { await fetch('/api/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ api_key: this.form.apiKey, model_name: this.form.modelName, proxy_url: this.form.proxyUrl }) }); alert("配置已保存"); this.fetchModels(); } catch(e) { alert("Error"); } },
+                async fetchModels() { try { const res = await fetch('/api/models'); const data = await res.json(); if (data.models) this.availableModels = data.models; } catch(e) {} },
                 
-                // ✅ 目录树相关
-                async fetchDirs() {
+                // 目录浏览逻辑
+                async fetchDirs(path = null) {
                     try {
-                        const res = await fetch('/api/dirs');
+                        const url = path ? `/api/dirs?path=${encodeURIComponent(path)}` : '/api/dirs';
+                        const res = await fetch(url);
                         const data = await res.json();
-                        this.dirStructure = data.dirs;
-                    } catch(e) {}
-                },
-                selectFolder(path) {
-                    this.currentFolder = path;
-                },
-                async scanFolder(path) {
-                    this.isScanningPath = path;
-                    this.selectFolder(path); // 自动选中
-                    try {
-                        // 发起特定文件夹扫描
-                        await fetch('/api/scan', { 
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ path: path }) 
-                        });
-                        // 注意：这里不用等待 fetch 返回，因为后端是异步线程
-                        // 状态轮询会更新进度
+                        this.subDirs = data.subdirs;
+                        this.currentNavPath = data.current_path;
+                        this.isNavRoot = data.is_root;
+                        this.parentNavPath = data.parent_path;
+                        // 进入新目录时，清除之前的筛选
+                        this.filterFolder = '';
+                        // 也可以选择这里自动扫描，但对于大文件夹还是手动点击更好
                     } catch(e) { console.error(e); }
                 },
+                selectFolder(path) {
+                    // 这个方法主要用于点击左上角的“全部文件”或者后续扩展
+                    // 这里我们简单清空 filterFolder 即可显示全部
+                    this.filterFolder = path;
+                },
+                
+                // 扫描单个文件夹
+                async scanFolder(path) {
+                    this.isScanningPath = path;
+                    this.filterFolder = path; // 自动聚焦
+                    await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: path }) });
+                },
 
-                // ... 任务流程 ...
-                async startScanAll() { 
-                    this.results = []; 
-                    this.isAiResult = false;
-                    await fetch('/api/scan', { 
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ path: null }) // null = 全量
-                    }); 
-                },
-                async startAnalyze() { 
-                    this.isAiResult = true; 
-                    await fetch('/api/analyze', { method: 'POST' }); 
-                },
+                // 通用逻辑
+                async startScanAll() { this.results = []; this.isAiResult = false; await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: null }) }); },
+                async startAnalyze() { this.isAiResult = true; await fetch('/api/analyze', { method: 'POST' }); },
                 async pollStatus() {
                     try {
                         const res = await fetch('/api/status');
                         const data = await res.json();
-                        if (data.config && (!this.config.has_key || this.config.model_name !== data.config.model_name)) {
-                            this.config = data.config;
-                            if(!this.form.apiKey && data.config.has_key) this.form.apiKey = data.config.masked_key; 
-                            if(data.config.model_name) this.form.modelName = data.config.model_name;
-                            if(data.config.proxy_url) this.form.proxyUrl = data.config.proxy_url;
-                            if(data.config.music_dir) this.config.music_dir = data.config.music_dir;
-                        }
+                        if (data.config) { this.config = data.config; if(!this.form.apiKey) this.form.apiKey = data.config.masked_key; if(!this.form.modelName) this.form.modelName = data.config.model_name; if(!this.form.proxyUrl) this.form.proxyUrl = data.config.proxy_url; if(data.config.music_dir) this.config.music_dir = data.config.music_dir; }
                         this.status = data;
-                        
-                        // 扫描完成逻辑
                         if (this.status.status === 'idle') {
+                            if (this.isBusy) await this.refreshFiles();
                             this.isScanningPath = null;
-                            if (this.isBusy) { // 刚从 busy 变 idle，说明任务结束
-                                await this.refreshFiles(); // 刷新文件列表
-                            }
                         }
-
-                        // 去重结果逻辑
-                        if (this.status.status === 'idle' && this.results.length === 0 && this.status.candidates_count > 0 && !this.isAiResult) {
-                            await this.fetchCandidates();
-                        }
-                        if (this.status.status === 'done' && this.results.length === 0 && this.isAiResult) {
-                            await this.fetchResults();
-                        }
+                        if (this.status.status === 'idle' && this.results.length === 0 && this.status.candidates_count > 0 && !this.isAiResult) this.fetchCandidates();
+                        if (this.status.status === 'done' && this.results.length === 0 && this.isAiResult) this.fetchResults();
                     } catch(e) {}
                 },
-                async fetchCandidates() {
-                    const res = await fetch('/api/candidates');
-                    const data = await res.json();
-                    this.results = data.results;
-                },
-                async fetchResults() {
-                    const res = await fetch('/api/results');
-                    const data = await res.json();
-                    this.results = data.results;
-                    this.isAiResult = true;
-                },
+                async fetchCandidates() { const res = await fetch('/api/candidates'); const data = await res.json(); this.results = data.results; },
+                async fetchResults() { const res = await fetch('/api/results'); const data = await res.json(); this.results = data.results; this.isAiResult = true; },
                 isSelected(path) { return this.selectedFiles.includes(path); },
-                toggleSelect(path) {
-                    if (this.isSelected(path)) this.selectedFiles = this.selectedFiles.filter(p => p !== path);
-                    else this.selectedFiles.push(path);
-                },
-                async deleteSelected() {
-                    if (!confirm(`确定删除 ${this.selectedFiles.length} 个文件？`)) return;
-                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.selectedFiles }) });
-                    this.selectedFiles = [];
-                    if (this.isAiResult) this.fetchResults(); else this.fetchCandidates();
-                    this.refreshFiles();
-                },
+                toggleSelect(path) { if (this.isSelected(path)) this.selectedFiles = this.selectedFiles.filter(p => p !== path); else this.selectedFiles.push(path); },
+                async deleteSelected() { if (!confirm(`确定删除?`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.selectedFiles }) }); this.selectedFiles = []; this.refreshFiles(); },
                 
-                // ... 文件管理通用 ...
-                async refreshFiles() {
-                    const res = await fetch('/api/files');
-                    const data = await res.json();
-                    this.allFiles = data.files;
-                },
-                toggleSelectAllFiles() {
-                    if (this.isAllFilesSelected) {
-                        const currentPaths = this.paginatedFiles.map(f => f.path);
-                        this.managerSelection = this.managerSelection.filter(p => !currentPaths.includes(p));
-                    } else {
-                        const currentPaths = this.paginatedFiles.map(f => f.path);
-                        this.managerSelection = [...new Set([...this.managerSelection, ...currentPaths])];
-                    }
-                },
-                async deleteManagerSelection() {
-                    if (!confirm(`⚠️ 高能预警：确定永久删除选中的 ${this.managerSelection.length} 个文件吗？`)) return;
-                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.managerSelection }) });
-                    this.managerSelection = [];
-                    this.refreshFiles();
-                },
-                async applyMetadata() {
-                    if (!confirm(`确定修改 ${this.managerSelection.length} 个文件的标签吗？`)) return;
-                    const body = { 
-                        paths: this.managerSelection, 
-                        artist: this.metaEdit.artist || null, 
-                        album_artist: this.metaEdit.album_artist || null,
-                        title: this.metaEdit.title || null, 
-                        album: this.metaEdit.album || null 
-                    };
-                    await fetch('/api/update_meta', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) });
-                    this.refreshFiles();
-                    this.managerSelection = [];
-                    this.metaEdit = {artist:'', album_artist:'', title:'', album:''};
-                },
-                async applyRename() {
-                    if (!confirm(`确定重命名 ${this.managerSelection.length} 个文件吗？`)) return;
-                    await fetch('/api/rename', { 
-                        method: 'POST', 
-                        headers: {'Content-Type': 'application/json'}, 
-                        body: JSON.stringify({ paths: this.managerSelection, pattern: this.renamePattern }) 
-                    });
-                    this.refreshFiles();
-                    this.managerSelection = [];
-                },
-                async deleteOne(file) {
-                    if (!confirm(`确定删除文件: ${file.filename} ?`)) return;
-                    await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: [file.path] }) });
-                    this.allFiles = this.allFiles.filter(f => f.path !== file.path);
-                },
-                async fixSingleAI(file) {
-                    this.loadingFiles[file.path] = true;
-                    try {
-                        const res = await fetch('/api/fix_meta_single', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({ path: file.path })
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                            await this.refreshFiles();
-                        } else {
-                            alert("AI 修复失败: " + (data.error || "未知错误"));
-                        }
-                    } catch (e) {
-                        alert("请求失败: " + e);
-                    } finally {
-                        this.loadingFiles[file.path] = false;
-                    }
-                }
+                async refreshFiles() { const res = await fetch('/api/files'); const data = await res.json(); this.allFiles = data.files; },
+                toggleSelectAllFiles() { if (this.isAllFilesSelected) { const currentPaths = this.paginatedFiles.map(f => f.path); this.managerSelection = this.managerSelection.filter(p => !currentPaths.includes(p)); } else { const currentPaths = this.paginatedFiles.map(f => f.path); this.managerSelection = [...new Set([...this.managerSelection, ...currentPaths])]; } },
+                async deleteManagerSelection() { if (!confirm(`删除 ${this.managerSelection.length} 个文件?`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.managerSelection }) }); this.managerSelection = []; this.refreshFiles(); },
+                async applyMetadata() { if (!confirm(`修改标签?`)) return; const body = { paths: this.managerSelection, artist: this.metaEdit.artist||null, album_artist: this.metaEdit.album_artist||null, title: this.metaEdit.title||null, album: this.metaEdit.album||null }; await fetch('/api/update_meta', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body) }); this.refreshFiles(); this.managerSelection=[]; },
+                async applyRename() { if (!confirm(`重命名?`)) return; await fetch('/api/rename', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: this.managerSelection, pattern: this.renamePattern }) }); this.refreshFiles(); this.managerSelection=[]; },
+                async deleteOne(file) { if (!confirm(`删除 ${file.filename}?`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: [file.path] }) }); this.allFiles = this.allFiles.filter(f => f.path !== file.path); },
+                async fixSingleAI(file) { this.loadingFiles[file.path] = true; try { const res = await fetch('/api/fix_meta_single', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: file.path }) }); const data = await res.json(); if (data.success) await this.refreshFiles(); else alert("Error: "+data.error); } catch(e) { alert("Fail"); } finally { this.loadingFiles[file.path] = false; } }
             }
         }).mount('#app');
     </script>
