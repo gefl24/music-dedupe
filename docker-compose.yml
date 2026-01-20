@@ -1,0 +1,12 @@
+version: '3.8'
+
+services:
+  music-dedupe-web:
+    build: .
+    container_name: music-dedupe-web
+    ports:
+      - "8000:8000"
+    volumes:
+      # ⚠️ 关键：这里挂载你的音乐目录
+      - /volume1/music:/music
+    restart: unless-stopped
