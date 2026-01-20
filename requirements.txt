@@ -1,3 +1,9 @@
+fastapi
+uvicorn
+jinja2
+python-multipart
 google-generativeai
 mutagen
-tqdm
+thefuzz
+requests
+aiofiles
