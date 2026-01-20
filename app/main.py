@@ -4,7 +4,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List
-import core
+from . import core  # ✅ 使用相对引用，表示"引入当前目录下的 core"
 
 app = FastAPI()
 templates = Jinja2Templates(directory="app/templates")
