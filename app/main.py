@@ -14,7 +14,6 @@ class ConfigRequest(BaseModel):
 class DeleteRequest(BaseModel):
     paths: List[str]
 
-# ✅ 修改：增加 album_artist
 class MetadataRequest(BaseModel):
     paths: List[str]
     artist: Optional[str] = None
@@ -59,9 +58,20 @@ async def list_models():
 async def get_all_files():
     return {"files": core.state.files}
 
+# ✅ 新增：获取扫描后的疑似列表
+@app.get("/api/candidates")
+async def get_candidates():
+    # 为了让前端统一格式展示，我们将 candidates (list of lists) 包装成 results 的格式
+    formatted = []
+    for group in core.state.candidates:
+        formatted.append({
+            "files": group,
+            "reason": "本地模糊匹配 (疑似)"
+        })
+    return {"results": formatted}
+
 @app.post("/api/update_meta")
 async def update_metadata(req: MetadataRequest):
-    # ✅ 传递 album_artist
     count = core.batch_update_metadata(req.paths, req.artist, req.album_artist, req.title, req.album)
     return {"status": "ok", "updated": count}
 
