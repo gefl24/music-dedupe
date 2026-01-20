@@ -14,9 +14,11 @@ class ConfigRequest(BaseModel):
 class DeleteRequest(BaseModel):
     paths: List[str]
 
+# ✅ 修改：增加 album_artist
 class MetadataRequest(BaseModel):
     paths: List[str]
     artist: Optional[str] = None
+    album_artist: Optional[str] = None
     title: Optional[str] = None
     album: Optional[str] = None
 
@@ -24,7 +26,6 @@ class RenameRequest(BaseModel):
     paths: List[str]
     pattern: str
 
-# ✅ 新增：单文件请求
 class SingleFileRequest(BaseModel):
     path: str
 
@@ -60,10 +61,10 @@ async def get_all_files():
 
 @app.post("/api/update_meta")
 async def update_metadata(req: MetadataRequest):
-    count = core.batch_update_metadata(req.paths, req.artist, req.title, req.album)
+    # ✅ 传递 album_artist
+    count = core.batch_update_metadata(req.paths, req.artist, req.album_artist, req.title, req.album)
     return {"status": "ok", "updated": count}
 
-# ✅ 新增：单曲 AI 修复接口
 @app.post("/api/fix_meta_single")
 async def fix_meta_single(req: SingleFileRequest):
     result = core.fix_single_metadata_ai(req.path)
