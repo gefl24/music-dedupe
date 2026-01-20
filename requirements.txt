@@ -4,6 +4,7 @@ jinja2
 python-multipart
 google-generativeai
 mutagen
-thefuzz
 requests
 aiofiles
+thefuzz
+python-Levenshtein
