@@ -104,26 +104,31 @@ def get_metadata(path):
     except Exception as e:
         pass
     
+    # 获取各个字段
     artist = tags.get('artist', [''])[0]
+    album_artist = tags.get('albumartist', [''])[0] # ✅ 新增：读取专辑艺术家
     title = tags.get('title', [''])[0]
     album = tags.get('album', [''])[0]
     
-    if not artist and not title:
+    # 简单的回退逻辑：如果标题为空，用文件名
+    if not title:
         base = os.path.splitext(filename)[0]
         if " - " in base:
             parts = base.split(" - ")
-            artist = parts[0]
+            if not artist: artist = parts[0] # 仅当 artist 为空时才猜测
             title = parts[1] if len(parts) > 1 else base
         else:
             title = base
 
-    search_text = f"{artist} {title} {filename}".lower()
+    # 构造搜索文本
+    search_text = f"{artist} {album_artist} {title} {filename}".lower()
 
     return {
         "id": hash(path),
         "path": path,
         "filename": filename,
         "artist": artist.strip(),
+        "album_artist": album_artist.strip(), # ✅ 返回前端
         "title": title.strip(),
         "album": album.strip(),
         "duration": duration,
@@ -132,7 +137,8 @@ def get_metadata(path):
         "search_text": search_text 
     }
 
-def batch_update_metadata(file_paths, artist=None, title=None, album=None):
+# ✅ 修改：增加 album_artist 参数
+def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None, album=None):
     updated_count = 0
     for path in file_paths:
         if not os.path.exists(path): continue
@@ -145,14 +151,17 @@ def batch_update_metadata(file_paths, artist=None, title=None, album=None):
             
             if audio is not None:
                 if artist: audio['artist'] = artist
+                if album_artist: audio['albumartist'] = album_artist # ✅ 写入专辑艺术家
                 if title: audio['title'] = title
                 if album: audio['album'] = album
                 audio.save()
                 updated_count += 1
                 
+                # 更新内存缓存
                 for f in state.files:
                     if f['path'] == path:
                         if artist: f['artist'] = artist
+                        if album_artist: f['album_artist'] = album_artist
                         if title: f['title'] = title
                         if album: f['album'] = album
                         break
@@ -168,11 +177,15 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
         if not meta: meta = get_metadata(path)
 
         safe_artist = meta['artist'].replace("/", "_").replace("\\", "_") or "Unknown"
+        safe_album_artist = meta['album_artist'].replace("/", "_").replace("\\", "_") or "Unknown"
         safe_title = meta['title'].replace("/", "_").replace("\\", "_") or meta['filename']
         safe_album = meta['album'].replace("/", "_").replace("\\", "_") or "Unknown"
 
         ext = os.path.splitext(path)[1]
+        
+        # ✅ 支持 {album_artist} 占位符
         new_name = pattern.replace("{artist}", safe_artist)\
+                          .replace("{album_artist}", safe_album_artist)\
                           .replace("{title}", safe_title)\
                           .replace("{album}", safe_album) + ext
         
@@ -190,7 +203,6 @@ def batch_rename_files(file_paths, pattern="{artist} - {title}"):
                 print(f"Rename failed: {e}")
     return renamed_count
 
-# ✅ 新增：单曲 AI 修复
 def fix_single_metadata_ai(path):
     if not state.api_key: return {"error": "API Key Missing"}
     if not os.path.exists(path): return {"error": "File not found"}
@@ -199,23 +211,27 @@ def fix_single_metadata_ai(path):
     genai.configure(api_key=state.api_key)
     model = genai.GenerativeModel(state.model_name)
     
-    # 获取当前简陋的元数据
     meta = get_metadata(path)
     
+    # ✅ Prompt 升级：明确区分 Artist 和 Album Artist
     prompt = f"""
-    I have a music file with filename: "{meta['filename']}".
-    Current Metadata - Artist: "{meta['artist']}", Title: "{meta['title']}".
+    I have a music file: "{meta['filename']}".
+    Current Tags -> Artist: "{meta['artist']}", Album Artist: "{meta['album_artist']}", Title: "{meta['title']}", Album: "{meta['album']}".
     
-    Please assume the role of a Music Tagger. 
-    1. Infer the correct Artist, Title, and Album from the filename and your knowledge base.
-    2. Correct any typos or missing information.
-    3. If it's a cover or live version mentioned in filename, keep that info in Title.
+    Role: Expert Music Librarian.
+    Task: Infer and correct metadata based on filename and common knowledge.
+    
+    Guidelines:
+    1. "Artist": The specific performer of this track.
+    2. "Album Artist": The main artist of the album (crucial for compilations or 'feat.' tracks). Usually same as Artist unless it's a compilation.
+    3. Fix typos.
     
     Return JSON ONLY:
     {{
-        "artist": "Correct Artist Name",
-        "title": "Correct Song Title",
-        "album": "Correct Album Name (or Single)"
+        "artist": "string",
+        "album_artist": "string",
+        "title": "string",
+        "album": "string"
     }}
     """
     
@@ -223,8 +239,14 @@ def fix_single_metadata_ai(path):
         resp = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
         ai_data = json.loads(resp.text)
         
-        # 写入文件
-        batch_update_metadata([path], ai_data.get('artist'), ai_data.get('title'), ai_data.get('album'))
+        # 写入
+        batch_update_metadata(
+            [path], 
+            ai_data.get('artist'), 
+            ai_data.get('album_artist'), 
+            ai_data.get('title'), 
+            ai_data.get('album')
+        )
         
         return {"success": True, "data": ai_data}
     except Exception as e:
@@ -349,7 +371,6 @@ def delete_file(path):
     try:
         if os.path.exists(path):
             os.remove(path)
-            # 同时从内存中移除
             state.files = [f for f in state.files if f['path'] != path]
             return True
     except Exception as e:
