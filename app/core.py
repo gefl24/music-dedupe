@@ -164,6 +164,8 @@ class AppState:
         self.proxy_url = ""
         self.music_dir = "/music"
         self.task_target_path = "/music"
+        # 1. ✅ 新增 AI去重目标路径，默认为音乐根目录
+        self.dedupe_target_path = "/music"
         self.status = "idle"
         self.progress = 0
         self.total = 0
@@ -208,6 +210,8 @@ class AppState:
                     self.proxy_url = config.get("proxy_url", "").strip()
                     self.music_dir = config.get("music_dir", "/music").strip()
                     self.task_target_path = config.get("task_target_path", self.music_dir).strip()
+                    # 加载去重目标路径
+                    self.dedupe_target_path = config.get("dedupe_target_path", self.music_dir).strip()
                     saved_tasks = config.get("tasks_config", {})
                     for key, val in saved_tasks.items():
                         if key in self.tasks_config:
@@ -226,6 +230,7 @@ class AppState:
                     "proxy_url": self.proxy_url,
                     "music_dir": self.music_dir,
                     "task_target_path": self.task_target_path,
+                    "dedupe_target_path": self.dedupe_target_path, # 保存去重目标路径
                     "tasks_config": self.tasks_config
                 }, f, indent=2)
             self.apply_proxy()
@@ -375,18 +380,15 @@ def cleanup_memory():
     gc.collect()
     state.log("Memory cleanup completed")
 
-# ✅ 优化后的扫描与分组逻辑 (Fix: Better Grouping)
+# ✅ 扫描逻辑：支持根据 scope_path 过滤“重复候选”
 def task_scan_and_group(target_path=None):
     state.status = "scanning"
-    scan_dir = target_path or state.music_dir
+    # 如果没传 target_path，就默认用 state.dedupe_target_path (而不是全局 music_dir)
+    # 这意味着“去重扫描”现在只针对用户设定的那个文件夹
+    scan_dir = target_path or state.dedupe_target_path
     
-    if target_path:
-        # 如果指定了路径，只移除该路径下的旧缓存
-        state.files = [f for f in state.files if not f['path'].startswith(target_path)]
-    else:
-        # 全量扫描则清空
-        state.files = []
-        meta_db.clear_all()
+    # 清理该路径下的旧缓存，准备重新扫描
+    state.files = [f for f in state.files if not f['path'].startswith(scan_dir)]
     
     state.candidates = []
     state.results = []
@@ -395,7 +397,7 @@ def task_scan_and_group(target_path=None):
     batch = []
     file_count = 0
     
-    state.message = "正在扫描文件..."
+    state.message = f"正在扫描: {scan_dir} ..."
     for f_path in file_generator(scan_dir):
         try:
             meta = get_metadata(f_path)
@@ -418,16 +420,18 @@ def task_scan_and_group(target_path=None):
     state.total = len(state.files)
     state.message = f"扫描完成, 正在按标题进行模糊匹配..."
     
-    # --- 核心改进：基于标题相似度分组 ---
+    # --- 分组逻辑 ---
     candidates = []
     
-    # 1. 辅助函数：获取用于比较的 key (优先 Title，其次 Filename，都转小写)
     def get_sort_key(item):
         key = item.get('title') or os.path.splitext(item['filename'])[0]
         return key.lower().strip()
 
-    # 2. 先排序，让相似标题的文件靠在一起
-    sorted_files = sorted(state.files, key=get_sort_key)
+    # 1. 关键修改：只筛选出位于 scan_dir 下的文件参与查重
+    # 这样就“取消了与文件管理列表的关联”，只聚焦于当前去重目标文件夹
+    files_to_check = [f for f in state.files if f['path'].startswith(scan_dir)]
+    
+    sorted_files = sorted(files_to_check, key=get_sort_key)
     
     if sorted_files:
         current_group = [sorted_files[0]]
@@ -440,25 +444,21 @@ def task_scan_and_group(target_path=None):
             prev_key = get_sort_key(prev)
             curr_key = get_sort_key(curr)
             
-            # 使用 fuzz.ratio 进行高精度匹配 (只比较标题)
-            # 阈值设为 85，既能容忍少量差异，又能避免完全不相关的歌
             similarity = fuzz.ratio(prev_key, curr_key)
             
             if similarity > 85:
                 current_group.append(curr)
             else:
-                # 如果当前组超过1个文件，则为疑似重复组
                 if len(current_group) > 1:
                     candidates.append(current_group)
                 current_group = [curr]
         
-        # 处理最后一组
         if len(current_group) > 1:
             candidates.append(current_group)
     
     state.candidates = candidates
-    state.status = "idle" # 扫描结束，状态回 idle，等待用户操作
-    state.message = f"扫描完成, 发现 {len(state.candidates)} 组疑似重复 (基于标题相似度)。"
+    state.status = "idle" 
+    state.message = f"扫描完成, 在 {scan_dir} 中发现 {len(state.candidates)} 组疑似重复。"
     cleanup_memory()
 
 def task_analyze_with_gemini():
@@ -469,7 +469,6 @@ def task_analyze_with_gemini():
     
     state.apply_proxy()
     state.status = "analyzing"
-    # 注意：这里不要轻易清空 state.candidates，否则前端会瞬间变空
     state.results = [] 
     
     try:
@@ -643,7 +642,6 @@ def task_extract_meta(target_dir):
                             nfo_file.write(nfo_content)
                         processed_count += 1
                     
-                    # 封面提取优化: 总是生成同名封面，缺失则生成folder.jpg
                     song_cover_path = os.path.join(root, f"{base_name}.jpg")
                     folder_cover_path = os.path.join(root, "folder.jpg")
                     
