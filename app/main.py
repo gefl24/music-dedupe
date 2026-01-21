@@ -1,5 +1,8 @@
 import os
 import secrets
+import threading  # ✅ 修复: 补全缺失的 threading 模块
+import base64
+import binascii
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,13 +15,13 @@ import json
 import asyncio
 from . import core
 
-# 1. ✅ 读取环境变量中的账号密码 (默认为 admin/admin)
+# 读取环境变量中的账号密码 (默认为 admin/admin)
 WEB_USER = os.getenv("WEB_USER", "admin")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
 
 security = HTTPBasic()
 
-# 2. ✅ 定义认证依赖函数
+# ✅ HTTP 接口认证依赖
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, WEB_USER)
     correct_password = secrets.compare_digest(credentials.password, WEB_PASSWORD)
@@ -30,12 +33,25 @@ def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# 3. ✅ 将认证应用到整个 App (包含所有路由和静态文件)
-app = FastAPI(
-    title="Music Manager", 
-    version="2.0",
-    dependencies=[Depends(get_current_username)] 
-)
+# ✅ WebSocket 认证辅助函数
+def check_websocket_auth(websocket: WebSocket) -> bool:
+    auth_header = websocket.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Basic "):
+        return False
+    try:
+        encoded_creds = auth_header.split(" ")[1]
+        decoded_bytes = base64.b64decode(encoded_creds)
+        decoded_str = decoded_bytes.decode("utf-8")
+        username, password = decoded_str.split(":", 1)
+        
+        is_user_ok = secrets.compare_digest(username, WEB_USER)
+        is_pass_ok = secrets.compare_digest(password, WEB_PASSWORD)
+        return is_user_ok and is_pass_ok
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return False
+
+# 初始化 App (移除全局依赖，避免误伤 WebSocket)
+app = FastAPI(title="Music Manager", version="2.0")
 
 # CORS 配置
 app.add_middleware(
@@ -46,7 +62,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Pydantic 模型
+# --- Models ---
 class ConfigRequest(BaseModel):
     api_key: str
     model_name: str
@@ -91,33 +107,33 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# --- Routes ---
+# --- Routes (全部添加认证依赖) ---
 
-@app.get("/")
+@app.get("/", dependencies=[Depends(get_current_username)])
 async def read_root():
     return FileResponse("app/templates/index.html")
 
-@app.get("/api/dirs")
+@app.get("/api/dirs", dependencies=[Depends(get_current_username)])
 async def get_dirs(path: Optional[str] = None):
     return core.get_dir_structure(path)
 
-@app.get("/api/files")
+@app.get("/api/files", dependencies=[Depends(get_current_username)])
 async def get_files():
     return {"files": core.state.files}
 
-@app.post("/api/scan")
+@app.post("/api/scan", dependencies=[Depends(get_current_username)])
 async def scan_files(req: ScanRequest):
+    # ✅ 这里的 threading 引用现在是安全的
     t = threading.Thread(target=core.task_scan_and_group, args=(req.path,))
     t.start()
     return {"status": "started"}
 
-@app.get("/api/status")
+@app.get("/api/status", dependencies=[Depends(get_current_username)])
 async def get_status():
-    """获取当前状态和部分配置"""
     config_data = {
         "has_key": bool(core.state.api_key),
         "model_name": core.state.model_name,
-        "proxy_url": core.state.proxy_url, # 返回 Proxy URL 以便前端回显
+        "proxy_url": core.state.proxy_url,
         "music_dir": core.state.music_dir,
         "task_target_path": core.state.task_target_path,
         "tasks_config": core.state.tasks_config
@@ -132,11 +148,11 @@ async def get_status():
         "config": config_data
     }
 
-@app.get("/api/candidates")
+@app.get("/api/candidates", dependencies=[Depends(get_current_username)])
 async def get_candidates():
     return {"results": core.state.candidates}
 
-@app.post("/api/config")
+@app.post("/api/config", dependencies=[Depends(get_current_username)])
 async def save_config(req: ConfigRequest):
     core.state.api_key = req.api_key
     core.state.model_name = req.model_name
@@ -144,11 +160,11 @@ async def save_config(req: ConfigRequest):
     core.state.save_config()
     return {"status": "ok"}
 
-@app.get("/api/models")
+@app.get("/api/models", dependencies=[Depends(get_current_username)])
 async def list_models():
     return {"models": core.state.get_available_models()}
 
-@app.post("/api/tasks/config")
+@app.post("/api/tasks/config", dependencies=[Depends(get_current_username)])
 async def save_tasks_config(req: TaskConfigRequest):
     core.state.tasks_config = req.tasks
     core.state.task_target_path = req.target_path
@@ -156,68 +172,63 @@ async def save_tasks_config(req: TaskConfigRequest):
     core.state.update_scheduler()
     return {"status": "ok"}
 
-@app.post("/api/tasks/run/{task_id}")
+@app.post("/api/tasks/run/{task_id}", dependencies=[Depends(get_current_username)])
 async def run_manual_task(task_id: str):
-    import threading
-    # 使用线程运行任务避免阻塞主进程
     t = threading.Thread(target=core.run_task_wrapper, args=(task_id,))
     t.start()
     return {"status": "started", "task": task_id}
 
-@app.get("/api/tasks/logs")
+@app.get("/api/tasks/logs", dependencies=[Depends(get_current_username)])
 async def get_task_logs():
     return {"logs": core.state.task_logs}
 
-@app.post("/api/update_meta")
+@app.post("/api/update_meta", dependencies=[Depends(get_current_username)])
 async def update_metadata(req: MetadataRequest):
     count = core.batch_update_metadata(
         req.paths, req.artist, req.album_artist, req.title, req.album
     )
     return {"updated": count}
 
-@app.post("/api/rename")
+@app.post("/api/rename", dependencies=[Depends(get_current_username)])
 async def rename_files(req: RenameRequest):
     count = core.batch_rename_files(req.paths, req.pattern)
     return {"renamed": count}
 
-@app.post("/api/fix_meta_single")
+@app.post("/api/fix_meta_single", dependencies=[Depends(get_current_username)])
 async def fix_meta_single(req: SingleFileRequest):
     res = core.fix_single_metadata_ai(req.path)
     return res
 
-@app.post("/api/analyze")
+@app.post("/api/analyze", dependencies=[Depends(get_current_username)])
 async def analyze_duplicates():
-    import threading
     t = threading.Thread(target=core.task_analyze_with_gemini)
     t.start()
     return {"status": "started"}
 
-@app.get("/api/results")
+@app.get("/api/results", dependencies=[Depends(get_current_username)])
 async def get_results():
-    """获取分析结果"""
     return {"results": core.state.results}
 
-@app.post("/api/delete")
+@app.post("/api/delete", dependencies=[Depends(get_current_username)])
 async def delete_files(req: DeleteRequest):
-    """删除文件"""
     deleted = []
     failed = []
     for path in req.paths:
-        # 简单安全检查
-        if not path.startswith("/music") and not path.startswith("/data"):
-             # 这里可以根据实际挂载路径调整，防止删除系统文件
-             pass 
         if core.delete_file(path):
             deleted.append(path)
         else:
             failed.append(path)
     return {"deleted": deleted, "failed": failed}
 
-# WebSocket 实时推送
+# WebSocket 实时推送 (单独的手动认证逻辑)
 @app.websocket("/ws/progress")
 async def websocket_endpoint(websocket: WebSocket):
-    # 注意：WebSocket 连接建立时，浏览器会自动带上 Basic Auth 的 header
-    # 如果认证失败，FastAPI 依赖会拒绝连接
+    # 1. 验证权限
+    if not check_websocket_auth(websocket):
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    # 2. 建立连接
     await manager.connect(websocket)
     try:
         while True:
@@ -236,7 +247,6 @@ async def websocket_endpoint(websocket: WebSocket):
     except Exception as e:
         manager.disconnect(websocket)
 
-# 健康检查
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok"}
