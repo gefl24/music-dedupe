@@ -1,5 +1,5 @@
 fastapi
-uvicorn[standard]  <-- 修改这一行，包含 websockets 支持
+uvicorn[standard]
 jinja2
 python-multipart
 google-generativeai>=0.8.3
