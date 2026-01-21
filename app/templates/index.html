@@ -95,7 +95,7 @@
                 </div>
 
                 <div class="text-sm flex items-center gap-3">
-                    <div v-if="isBusy" class="flex items-center gap-2 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
+                    <div v-if="isBusy && !isSilentPolling" class="flex items-center gap-2 text-blue-600 bg-blue-50 px-3 py-1 rounded-full text-xs font-bold animate-pulse">
                         <i class="fa-solid fa-circle-notch loading-spin"></i> 处理中...
                     </div>
                     <span v-if="config.has_key" class="text-green-600 font-bold flex items-center gap-1 tooltip" data-tip="API 已配置">
@@ -363,7 +363,7 @@
                     <div class="bg-gray-900 rounded-lg shadow-lg flex flex-col overflow-hidden h-full text-gray-300 border border-gray-800">
                         <div class="p-2 border-b border-gray-700 bg-gray-800 text-xs font-bold flex justify-between items-center shrink-0">
                             <span><i class="fa-solid fa-terminal mr-2 text-green-500"></i> 系统实时日志</span>
-                            <button @click="fetchLogs" class="hover:text-white"><i class="fa-solid fa-sync"></i></button>
+                            <button @click="fetchLogs(false)" class="hover:text-white"><i class="fa-solid fa-sync"></i></button>
                         </div>
                         <div class="flex-1 overflow-y-auto p-3 log-box bg-[#0d1117] text-xs">
                             <div v-for="(log, i) in taskLogs" :key="i" class="mb-1 border-b border-gray-800 pb-0.5">
@@ -480,6 +480,7 @@
                 // --- 状态 ---
                 const currentTab = ref('manager');
                 const isBusy = ref(false);
+                const isSilentPolling = ref(false); // ✅ 新增：静默轮询标志
                 const toast = ref({ show: false, message: '', type: 'info' });
                 
                 // Config & System
@@ -487,7 +488,7 @@
                 const form = ref({ apiKey: '', modelName: 'gemini-1.5-flash', proxyUrl: '' });
                 const availableModels = ref([]);
                 const status = ref({ status: 'idle', progress: 0, total: 0, message: '', candidates_count: 0 });
-                const initLoaded = ref(false); // 3. ✅ 增加初始化标志，防止轮询覆盖用户输入
+                const initLoaded = ref(false);
                 
                 // File Manager
                 const allFiles = ref([]);
@@ -579,7 +580,7 @@
 
                 const switchTab = (tab) => {
                     currentTab.value = tab;
-                    if (tab === 'tasks') fetchLogs();
+                    if (tab === 'tasks') fetchLogs(false);
                     if (tab === 'dedupe' && results.value.length === 0) fetchStatus(); 
                 };
 
@@ -588,41 +589,54 @@
                         const opts = { method, headers: { 'Content-Type': 'application/json' } };
                         if (body) opts.body = JSON.stringify(body);
                         const res = await fetch(url, opts);
+                        if (res.status === 401) {
+                            // 认证失败，重载页面触发浏览器登录框
+                            window.location.reload();
+                            return;
+                        }
                         if (!res.ok) throw new Error(`API Error: ${res.status}`);
                         return await res.json();
                     } catch (e) {
-                        showToast(e.message, 'error');
+                        if (!isSilentPolling.value) showToast(e.message, 'error');
                         throw e;
                     }
                 };
 
-                const fetchStatus = async () => {
-                    const data = await apiCall('/api/status');
-                    status.value = { ...data };
+                // ✅ 修复闪烁核心方法：增加 silent 参数
+                const fetchStatus = async (silent = false) => {
+                    if (silent) isSilentPolling.value = true;
                     
-                    if (data.config) {
-                        config.value = data.config;
+                    try {
+                        const data = await apiCall('/api/status');
+                        status.value = { ...data };
                         
-                        // 3. ✅ 初始化或刷新时才更新输入框，轮询时不更新，避免打断用户输入
-                        if (!initLoaded.value) {
-                            form.value.modelName = data.config.model_name || 'gemini-1.5-flash';
-                            form.value.proxyUrl = data.config.proxy_url || '';
-                            taskConfig.value = data.config.tasks_config;
-                            taskTargetFolder.value = data.config.task_target_path;
-                            initLoaded.value = true;
+                        if (data.config) {
+                            config.value = data.config;
+                            // 3. ✅ 只有初始化或非静默轮询时，才更新输入框配置
+                            // 防止轮询覆盖用户正在输入的内容
+                            if (!initLoaded.value && !silent) {
+                                form.value.modelName = data.config.model_name || 'gemini-1.5-flash';
+                                form.value.proxyUrl = data.config.proxy_url || '';
+                                taskConfig.value = data.config.tasks_config;
+                                taskTargetFolder.value = data.config.task_target_path;
+                                initLoaded.value = true;
+                            }
                         }
-                    }
 
-                    isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
-                    
-                    if (data.results_count > 0 && results.value.length === 0) {
-                        const resData = await apiCall('/api/results');
-                        results.value = resData.results;
-                        isAiResult.value = true;
-                    } else if (data.candidates_count > 0 && results.value.length === 0) {
-                        const resData = await apiCall('/api/candidates');
-                        results.value = resData.results;
-                        isAiResult.value = false;
+                        isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
+                        
+                        // 结果去重刷新 (防抖)
+                        if (data.results_count > 0 && (results.value.length === 0 || results.value.length !== data.results_count)) {
+                            const resData = await apiCall('/api/results');
+                            results.value = resData.results;
+                            isAiResult.value = true;
+                        } else if (data.candidates_count > 0 && (results.value.length === 0 || results.value.length !== data.candidates_count)) {
+                            const resData = await apiCall('/api/candidates');
+                            results.value = resData.results;
+                            isAiResult.value = false;
+                        }
+                    } finally {
+                        if (silent) isSilentPolling.value = false;
                     }
                 };
 
@@ -658,7 +672,7 @@
                     try {
                         await apiCall('/api/scan', 'POST', { path });
                         showToast('扫描已启动', 'success');
-                        setTimeout(fetchStatus, 500); 
+                        setTimeout(() => fetchStatus(false), 500);
                     } catch(e) {
                         isBusy.value = false;
                     } finally {
@@ -669,13 +683,13 @@
                 const startScanAll = async () => {
                     isBusy.value = true;
                     await apiCall('/api/scan', 'POST', { path: null });
-                    setTimeout(fetchStatus, 500);
+                    setTimeout(() => fetchStatus(false), 500);
                 };
 
                 const startAnalyze = async () => {
                     isBusy.value = true;
                     await apiCall('/api/analyze', 'POST');
-                    setTimeout(fetchStatus, 500);
+                    setTimeout(() => fetchStatus(false), 500);
                 };
 
                 const isSelected = (path) => selectedFiles.value.includes(path);
@@ -758,9 +772,8 @@
                         proxy_url: form.value.proxyUrl
                     });
                     showToast('配置已保存', 'success');
-                    // 保存后强制刷新一次状态，确保回显正确
                     initLoaded.value = false;
-                    fetchStatus();
+                    fetchStatus(false);
                 };
 
                 const fetchModels = async () => {
@@ -786,10 +799,10 @@
                 const runTask = async (taskId) => {
                     await apiCall(`/api/tasks/run/${taskId}`, 'POST');
                     showToast(`任务 ${taskId} 已启动`, 'success');
-                    setTimeout(fetchLogs, 1000);
+                    setTimeout(() => fetchLogs(false), 1000);
                 };
 
-                const fetchLogs = async () => {
+                const fetchLogs = async (silent = false) => {
                     const data = await apiCall('/api/tasks/logs');
                     taskLogs.value = data.logs;
                 };
@@ -805,7 +818,7 @@
                         
                         if (data.status === 'done' && currentTab.value === 'dedupe') {
                             if (results.value.length === 0 || results.value.length !== data.results_count) {
-                                fetchStatus(); 
+                                fetchStatus(false); 
                             }
                         }
                     };
@@ -816,25 +829,23 @@
                 };
 
                 onMounted(() => {
-                    fetchStatus();
+                    fetchStatus(false);
                     fetchDirs();
                     refreshFiles();
                     fetchModels();
                     connectWS();
                     
-                    // 轮询备份 (每2秒同步状态和日志)
+                    // ✅ 静默轮询：每2秒更新，设 silent=true，彻底消除闪烁
                     setInterval(() => {
                         if (document.visibilityState === 'visible') {
-                            // 仅获取状态，taskConfig 已经在 fetchStatus 内部被过滤
-                            fetchStatus();
-                            // 总是刷新日志
-                            if (currentTab.value === 'tasks') fetchLogs();
+                            fetchStatus(true);
+                            if (currentTab.value === 'tasks') fetchLogs(true);
                         }
                     }, 2000);
                 });
 
                 return {
-                    currentTab, switchTab, isBusy, toast, toastIcon,
+                    currentTab, switchTab, isBusy, isSilentPolling, toast, toastIcon,
                     config, form, availableModels, status, progressPercent,
                     // Manager
                     subDirs, currentNavPath, currentNavPathName, parentNavPath, isNavRoot, fetchDirs,
