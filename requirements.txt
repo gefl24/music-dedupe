@@ -1,5 +1,6 @@
 fastapi
-uvicorn[standard]
+uvicorn
+websockets
 jinja2
 python-multipart
 google-generativeai>=0.8.3
