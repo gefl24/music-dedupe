@@ -612,6 +612,7 @@ def task_extract_meta(target_dir):
                 try:
                     meta = get_metadata(path)
                     
+                    # 1. 生成 NFO (Emby 元数据)
                     nfo_path = os.path.join(root, f"{base_name}.nfo")
                     if not os.path.exists(nfo_path):
                         duration_str = f"{int(meta['duration']//60)}:{meta['duration']%60:02d}"
@@ -627,12 +628,17 @@ def task_extract_meta(target_dir):
                             nfo_file.write(nfo_content)
                         processed_count += 1
                     
-                    cover_target = os.path.join(root, "folder.jpg")
-                    if os.path.exists(cover_target):
-                        cover_target = os.path.join(root, f"{base_name}.jpg")
+                    # 2. 提取封面逻辑 (优化版)
+                    # 目标1：同名图片 (歌曲封面)
+                    song_cover_path = os.path.join(root, f"{base_name}.jpg")
+                    # 目标2：文件夹图片 (专辑封面)
+                    folder_cover_path = os.path.join(root, "folder.jpg")
                     
-                    if not os.path.exists(cover_target):
+                    # 只有当任一目标缺失时，才进行提取操作
+                    if not os.path.exists(song_cover_path) or not os.path.exists(folder_cover_path):
                         art_data = None
+                        
+                        # 提取内嵌图片数据
                         if f.lower().endswith('.mp3'):
                             try:
                                 audio = MP3(path, ID3=EasyID3)
@@ -652,9 +658,17 @@ def task_extract_meta(target_dir):
                                 pass
                         
                         if art_data:
-                            with open(cover_target, "wb") as img_file:
-                                img_file.write(art_data)
-                            state.log(f"[元数据] 提取封面: {os.path.basename(cover_target)}")
+                            # 写入同名封面 (歌曲封面)
+                            if not os.path.exists(song_cover_path):
+                                with open(song_cover_path, "wb") as img_file:
+                                    img_file.write(art_data)
+                                state.log(f"[元数据] 生成歌曲封面: {os.path.basename(song_cover_path)}")
+                            
+                            # 写入文件夹封面 (专辑封面 - 仅当不存在时)
+                            if not os.path.exists(folder_cover_path):
+                                with open(folder_cover_path, "wb") as img_file:
+                                    img_file.write(art_data)
+                                state.log(f"[元数据] 生成专辑封面: folder.jpg")
 
                 except Exception as e:
                     state.log(f"Error extracting meta from {f}: {e}")
