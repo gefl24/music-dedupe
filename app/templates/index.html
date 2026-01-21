@@ -22,7 +22,7 @@
         
         .col-checkbox { width: 40px; }
         .col-action { width: 90px; text-align: center; }
-        .col-file { width: 200px; } 
+        .col-file { width: 220px; } 
         
         .log-box { font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.4; }
         
@@ -52,10 +52,12 @@
         .task-left { width: 33.3333%; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; min-width: 320px; padding-right: 4px; }
         .task-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         
-        @media (max-width: 1024px) {
-            .task-layout { flex-direction: column; overflow-y: auto; }
-            .task-left, .task-right { width: 100%; overflow: visible; }
-            .task-right { height: 500px; flex: none; }
+        /* 遮罩层 */
+        .overlay {
+            position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.8);
+            z-index: 50; display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
         }
     </style>
 </head>
@@ -108,7 +110,7 @@
             </div>
         </header>
 
-        <main class="flex-1 overflow-hidden container mx-auto p-4 sm:p-6">
+        <main class="flex-1 overflow-hidden container mx-auto p-4 sm:p-6 relative">
             
             <div v-show="currentTab === 'manager'" class="h-full flex gap-4">
                 <div class="w-72 bg-white rounded-lg shadow-sm flex flex-col overflow-hidden shrink-0 border border-gray-200">
@@ -374,7 +376,20 @@
                 </div>
             </div>
 
-            <div v-show="currentTab === 'dedupe'" class="h-full overflow-y-auto pr-2">
+            <div v-show="currentTab === 'dedupe'" class="h-full overflow-y-auto pr-2 relative">
+                
+                <div v-if="isBusy && status.status !== 'idle'" class="overlay rounded-lg">
+                    <div class="text-center">
+                        <i class="fa-solid fa-circle-notch loading-spin text-4xl text-indigo-600 mb-4"></i>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">{{ status.status === 'scanning' ? '正在全量扫描...' : '正在进行 AI 分析...' }}</h3>
+                        <p class="text-gray-500">{{ status.message }}</p>
+                        <div class="w-64 bg-gray-200 rounded-full h-2 mt-4 mx-auto overflow-hidden">
+                            <div class="progress-bar bg-indigo-600 h-2 rounded-full" :style="{ width: progressPercent + '%' }"></div>
+                        </div>
+                        <p class="text-xs text-gray-400 mt-2">{{ status.progress }} / {{ status.total }}</p>
+                    </div>
+                </div>
+
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                     <div class="bg-white p-5 rounded-lg shadow-sm border border-gray-100">
                         <h2 class="font-bold mb-4 text-gray-700 border-b pb-2">系统配置</h2>
@@ -405,9 +420,6 @@
                                     <span v-if="status.total > 0" class="bg-blue-100 text-blue-700 px-2 rounded text-xs">{{ status.progress }} / {{ status.total }}</span>
                                 </div>
                                 <p class="text-xs text-gray-500 mb-3 h-10 overflow-hidden">{{ status.message }}</p>
-                                <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
-                                    <div class="progress-bar bg-blue-500 h-2 rounded-full" :style="{ width: progressPercent + '%' }"></div>
-                                </div>
                             </div>
                         </div>
                         <div class="flex gap-3">
@@ -433,7 +445,7 @@
                     <div class="grid grid-cols-1 gap-4">
                         <div v-for="(group, idx) in results" :key="idx" class="border rounded-lg p-4 bg-gray-50 hover:bg-white hover:shadow transition duration-200">
                             <div class="text-xs font-bold text-yellow-800 bg-yellow-100 p-2 rounded mb-3 inline-block">
-                                <i class="fa-solid fa-lightbulb text-yellow-600 mr-1"></i> {{ group.reason }}
+                                <i class="fa-solid fa-lightbulb text-yellow-600 mr-1"></i> {{ group.reason || '标题高度相似' }}
                             </div>
                             
                             <div class="space-y-2">
@@ -480,7 +492,7 @@
                 // --- 状态 ---
                 const currentTab = ref('manager');
                 const isBusy = ref(false);
-                const isSilentPolling = ref(false); // ✅ 新增：静默轮询标志
+                const isSilentPolling = ref(false);
                 const toast = ref({ show: false, message: '', type: 'info' });
                 
                 // Config & System
@@ -581,7 +593,8 @@
                 const switchTab = (tab) => {
                     currentTab.value = tab;
                     if (tab === 'tasks') fetchLogs(false);
-                    if (tab === 'dedupe' && results.value.length === 0) fetchStatus(); 
+                    // 仅当没有结果且不忙时才刷新
+                    if (tab === 'dedupe' && results.value.length === 0 && !isBusy.value) fetchStatus(false); 
                 };
 
                 const apiCall = async (url, method = 'GET', body = null) => {
@@ -590,7 +603,6 @@
                         if (body) opts.body = JSON.stringify(body);
                         const res = await fetch(url, opts);
                         if (res.status === 401) {
-                            // 认证失败，重载页面触发浏览器登录框
                             window.location.reload();
                             return;
                         }
@@ -602,7 +614,6 @@
                     }
                 };
 
-                // ✅ 修复闪烁核心方法：增加 silent 参数
                 const fetchStatus = async (silent = false) => {
                     if (silent) isSilentPolling.value = true;
                     
@@ -612,8 +623,6 @@
                         
                         if (data.config) {
                             config.value = data.config;
-                            // 3. ✅ 只有初始化或非静默轮询时，才更新输入框配置
-                            // 防止轮询覆盖用户正在输入的内容
                             if (!initLoaded.value && !silent) {
                                 form.value.modelName = data.config.model_name || 'gemini-1.5-flash';
                                 form.value.proxyUrl = data.config.proxy_url || '';
@@ -625,15 +634,26 @@
 
                         isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
                         
-                        // 结果去重刷新 (防抖)
-                        if (data.results_count > 0 && (results.value.length === 0 || results.value.length !== data.results_count)) {
-                            const resData = await apiCall('/api/results');
-                            results.value = resData.results;
-                            isAiResult.value = true;
-                        } else if (data.candidates_count > 0 && (results.value.length === 0 || results.value.length !== data.candidates_count)) {
-                            const resData = await apiCall('/api/candidates');
-                            results.value = resData.results;
-                            isAiResult.value = false;
+                        // 逻辑修正：防止闪烁
+                        // 1. 如果正在分析中，不要更新 results，保持遮罩层
+                        if (data.status === 'analyzing') {
+                            return;
+                        }
+
+                        // 2. 只有当任务完成 (idle 或 done) 时，才尝试更新列表
+                        if (data.status === 'done' || data.status === 'idle') {
+                            // 优先显示 AI 结果
+                            if (data.results_count > 0 && (results.value.length === 0 || results.value.length !== data.results_count || !isAiResult.value)) {
+                                const resData = await apiCall('/api/results');
+                                results.value = resData.results;
+                                isAiResult.value = true;
+                            } 
+                            // 其次显示模糊匹配结果
+                            else if (data.candidates_count > 0 && (results.value.length === 0 || results.value.length !== data.candidates_count || isAiResult.value)) {
+                                const resData = await apiCall('/api/candidates');
+                                results.value = resData.results;
+                                isAiResult.value = false;
+                            }
                         }
                     } finally {
                         if (silent) isSilentPolling.value = false;
@@ -669,6 +689,8 @@
                 const scanFolder = async (path) => {
                     isScanningPath.value = path;
                     isBusy.value = true;
+                    // 清空当前结果，避免混淆
+                    results.value = [];
                     try {
                         await apiCall('/api/scan', 'POST', { path });
                         showToast('扫描已启动', 'success');
@@ -682,12 +704,15 @@
 
                 const startScanAll = async () => {
                     isBusy.value = true;
+                    results.value = [];
                     await apiCall('/api/scan', 'POST', { path: null });
                     setTimeout(() => fetchStatus(false), 500);
                 };
 
                 const startAnalyze = async () => {
                     isBusy.value = true;
+                    // 清空当前列表，显示加载动画
+                    results.value = []; 
                     await apiCall('/api/analyze', 'POST');
                     setTimeout(() => fetchStatus(false), 500);
                 };
@@ -816,10 +841,9 @@
                         status.value = data;
                         isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
                         
+                        // 收到 done 信号时，强制刷新一次列表
                         if (data.status === 'done' && currentTab.value === 'dedupe') {
-                            if (results.value.length === 0 || results.value.length !== data.results_count) {
-                                fetchStatus(false); 
-                            }
+                            fetchStatus(false);
                         }
                     };
                     
@@ -835,7 +859,6 @@
                     fetchModels();
                     connectWS();
                     
-                    // ✅ 静默轮询：每2秒更新，设 silent=true，彻底消除闪烁
                     setInterval(() => {
                         if (document.visibilityState === 'visible') {
                             fetchStatus(true);
