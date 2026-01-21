@@ -6,6 +6,11 @@ import time
 import sqlite3
 import gc
 import warnings
+
+# ✅ 1. 将警告屏蔽移到最上方 (Fix Warning)
+warnings.filterwarnings('ignore', category=FutureWarning, module='google.generativeai')
+warnings.filterwarnings('ignore', category=UserWarning, module='google.generativeai')
+
 from datetime import datetime
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -26,10 +31,6 @@ from mutagen.id3 import ID3NoHeaderError
 from thefuzz import fuzz
 from PIL import Image
 import io
-
-# 忽略 google.generativeai 的弃用警告
-warnings.filterwarnings('ignore', category=FutureWarning, module='google.generativeai')
-warnings.filterwarnings('ignore', category=UserWarning, module='google.generativeai')
 
 DATA_DIR = "/data"
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
@@ -164,7 +165,6 @@ class AppState:
         self.proxy_url = ""
         self.music_dir = "/music"
         self.task_target_path = "/music"
-        # 1. ✅ 新增 AI去重目标路径，默认为音乐根目录
         self.dedupe_target_path = "/music"
         self.status = "idle"
         self.progress = 0
@@ -210,7 +210,6 @@ class AppState:
                     self.proxy_url = config.get("proxy_url", "").strip()
                     self.music_dir = config.get("music_dir", "/music").strip()
                     self.task_target_path = config.get("task_target_path", self.music_dir).strip()
-                    # 加载去重目标路径
                     self.dedupe_target_path = config.get("dedupe_target_path", self.music_dir).strip()
                     saved_tasks = config.get("tasks_config", {})
                     for key, val in saved_tasks.items():
@@ -230,7 +229,7 @@ class AppState:
                     "proxy_url": self.proxy_url,
                     "music_dir": self.music_dir,
                     "task_target_path": self.task_target_path,
-                    "dedupe_target_path": self.dedupe_target_path, # 保存去重目标路径
+                    "dedupe_target_path": self.dedupe_target_path,
                     "tasks_config": self.tasks_config
                 }, f, indent=2)
             self.apply_proxy()
@@ -380,14 +379,10 @@ def cleanup_memory():
     gc.collect()
     state.log("Memory cleanup completed")
 
-# ✅ 扫描逻辑：支持根据 scope_path 过滤“重复候选”
 def task_scan_and_group(target_path=None):
     state.status = "scanning"
-    # 如果没传 target_path，就默认用 state.dedupe_target_path (而不是全局 music_dir)
-    # 这意味着“去重扫描”现在只针对用户设定的那个文件夹
     scan_dir = target_path or state.dedupe_target_path
     
-    # 清理该路径下的旧缓存，准备重新扫描
     state.files = [f for f in state.files if not f['path'].startswith(scan_dir)]
     
     state.candidates = []
@@ -420,15 +415,12 @@ def task_scan_and_group(target_path=None):
     state.total = len(state.files)
     state.message = f"扫描完成, 正在按标题进行模糊匹配..."
     
-    # --- 分组逻辑 ---
     candidates = []
     
     def get_sort_key(item):
         key = item.get('title') or os.path.splitext(item['filename'])[0]
         return key.lower().strip()
 
-    # 1. 关键修改：只筛选出位于 scan_dir 下的文件参与查重
-    # 这样就“取消了与文件管理列表的关联”，只聚焦于当前去重目标文件夹
     files_to_check = [f for f in state.files if f['path'].startswith(scan_dir)]
     
     sorted_files = sorted(files_to_check, key=get_sort_key)
