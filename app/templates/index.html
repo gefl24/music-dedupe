@@ -22,7 +22,7 @@
         
         .col-checkbox { width: 40px; }
         .col-action { width: 90px; text-align: center; }
-        .col-file { width: 220px; } 
+        .col-file { width: 200px; } 
         
         .log-box { font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.4; }
         
@@ -47,12 +47,10 @@
             border-radius: 4px; margin-bottom: 4px; z-index: 100;
         }
         
-        /* 布局修正: 计划任务页 */
         .task-layout { display: flex; gap: 1rem; height: 100%; overflow: hidden; }
         .task-left { width: 33.3333%; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; min-width: 320px; padding-right: 4px; }
         .task-right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         
-        /* 遮罩层 */
         .overlay {
             position: absolute; top: 0; left: 0; right: 0; bottom: 0;
             background: rgba(255, 255, 255, 0.8);
@@ -381,13 +379,31 @@
                 <div v-if="isBusy && status.status !== 'idle'" class="overlay rounded-lg">
                     <div class="text-center">
                         <i class="fa-solid fa-circle-notch loading-spin text-4xl text-indigo-600 mb-4"></i>
-                        <h3 class="text-xl font-bold text-gray-800 mb-2">{{ status.status === 'scanning' ? '正在全量扫描...' : '正在进行 AI 分析...' }}</h3>
+                        <h3 class="text-xl font-bold text-gray-800 mb-2">{{ status.status === 'scanning' ? '正在扫描去重目录...' : '正在进行 AI 分析...' }}</h3>
                         <p class="text-gray-500">{{ status.message }}</p>
                         <div class="w-64 bg-gray-200 rounded-full h-2 mt-4 mx-auto overflow-hidden">
                             <div class="progress-bar bg-indigo-600 h-2 rounded-full" :style="{ width: progressPercent + '%' }"></div>
                         </div>
                         <p class="text-xs text-gray-400 mt-2">{{ status.progress }} / {{ status.total }}</p>
                     </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 mb-6">
+                    <h2 class="font-bold text-gray-700 mb-2 text-sm flex items-center gap-2">
+                        <i class="fa-solid fa-folder-tree text-indigo-500"></i> 去重目标文件夹
+                    </h2>
+                    <div class="flex gap-2">
+                        <input type="text" v-model="dedupeTargetPath" class="flex-1 border border-gray-300 p-2 rounded text-xs bg-gray-50 font-mono text-gray-600" readonly>
+                        <button @click="showDedupeFolderSelector = !showDedupeFolderSelector" class="bg-white border border-gray-300 text-gray-600 px-3 rounded text-xs hover:bg-gray-50">更改...</button>
+                    </div>
+                    
+                    <div v-if="showDedupeFolderSelector" class="mt-2 bg-white border rounded shadow-lg max-h-48 overflow-y-auto">
+                        <div @click="selectDedupeFolder(config.music_dir)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs font-bold border-b text-indigo-600">/ (根目录)</div>
+                        <div v-for="dir in folderSelectorList" :key="dir.path" @click="selectDedupeFolder(dir.path)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs text-gray-700 border-b border-gray-50 flex items-center">
+                            <i class="fa-regular fa-folder mr-2 text-yellow-500"></i> {{ dir.name }}
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-gray-400 mt-1">注意：去重扫描将仅在此文件夹下进行，与文件管理列表无关。</p>
                 </div>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
@@ -423,7 +439,7 @@
                             </div>
                         </div>
                         <div class="flex gap-3">
-                            <button @click="startScanAll" :disabled="isBusy" class="flex-1 border border-blue-500 text-blue-600 py-2 rounded hover:bg-blue-50 disabled:opacity-50">1. 全量扫描</button>
+                            <button @click="startScanAll" :disabled="isBusy" class="flex-1 border border-blue-500 text-blue-600 py-2 rounded hover:bg-blue-50 disabled:opacity-50">1. 扫描目标文件夹</button>
                             <button @click="startAnalyze" :disabled="isBusy || status.candidates_count === 0" class="flex-1 bg-purple-600 text-white py-2 rounded hover:bg-purple-700 disabled:opacity-50">
                                 <i class="fa-solid fa-robot"></i> AI 分析
                             </button>
@@ -528,6 +544,13 @@
                 const taskLogs = ref([]);
                 const folderSelectorList = ref([]);
 
+                // Dedupe
+                const dedupeTargetPath = ref(''); // 2. ✅ 新增去重路径状态
+                const showDedupeFolderSelector = ref(false);
+                const results = ref([]);
+                const selectedFiles = ref([]);
+                const isAiResult = ref(false);
+
                 // Task Name Mapping
                 const taskNames = {
                     dedupe_quality: "音质去重 (自动保留最高音质)",
@@ -536,11 +559,6 @@
                     clean_junk: "垃圾清理 (空目录/冗余文件)"
                 };
                 const getTaskName = (key) => taskNames[key] || key;
-                
-                // Dedupe
-                const results = ref([]);
-                const selectedFiles = ref([]);
-                const isAiResult = ref(false);
 
                 // --- 计算属性 ---
                 const currentNavPathName = computed(() => currentNavPath.value || config.value.music_dir || 'Root');
@@ -628,27 +646,24 @@
                                 form.value.proxyUrl = data.config.proxy_url || '';
                                 taskConfig.value = data.config.tasks_config;
                                 taskTargetFolder.value = data.config.task_target_path;
+                                // 2. ✅ 加载去重路径
+                                dedupeTargetPath.value = data.config.dedupe_target_path;
                                 initLoaded.value = true;
                             }
                         }
 
                         isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
                         
-                        // 逻辑修正：防止闪烁
-                        // 1. 如果正在分析中，不要更新 results，保持遮罩层
                         if (data.status === 'analyzing') {
                             return;
                         }
 
-                        // 2. 只有当任务完成 (idle 或 done) 时，才尝试更新列表
                         if (data.status === 'done' || data.status === 'idle') {
-                            // 优先显示 AI 结果
                             if (data.results_count > 0 && (results.value.length === 0 || results.value.length !== data.results_count || !isAiResult.value)) {
                                 const resData = await apiCall('/api/results');
                                 results.value = resData.results;
                                 isAiResult.value = true;
                             } 
-                            // 其次显示模糊匹配结果
                             else if (data.candidates_count > 0 && (results.value.length === 0 || results.value.length !== data.candidates_count || isAiResult.value)) {
                                 const resData = await apiCall('/api/candidates');
                                 results.value = resData.results;
@@ -689,7 +704,6 @@
                 const scanFolder = async (path) => {
                     isScanningPath.value = path;
                     isBusy.value = true;
-                    // 清空当前结果，避免混淆
                     results.value = [];
                     try {
                         await apiCall('/api/scan', 'POST', { path });
@@ -702,16 +716,17 @@
                     }
                 };
 
+                // ✅ 修改：全量扫描现在只扫描选定的去重文件夹
                 const startScanAll = async () => {
                     isBusy.value = true;
                     results.value = [];
-                    await apiCall('/api/scan', 'POST', { path: null });
+                    // 传入去重目标路径，而非 null (null 意味着扫所有)
+                    await apiCall('/api/scan', 'POST', { path: dedupeTargetPath.value });
                     setTimeout(() => fetchStatus(false), 500);
                 };
 
                 const startAnalyze = async () => {
                     isBusy.value = true;
-                    // 清空当前列表，显示加载动画
                     results.value = []; 
                     await apiCall('/api/analyze', 'POST');
                     setTimeout(() => fetchStatus(false), 500);
@@ -794,7 +809,8 @@
                     await apiCall('/api/config', 'POST', {
                         api_key: form.value.apiKey,
                         model_name: form.value.modelName,
-                        proxy_url: form.value.proxyUrl
+                        proxy_url: form.value.proxyUrl,
+                        dedupe_target_path: dedupeTargetPath.value // 3. ✅ 保存去重路径
                     });
                     showToast('配置已保存', 'success');
                     initLoaded.value = false;
@@ -811,6 +827,12 @@
                 const selectTaskFolder = (path) => {
                     taskTargetFolder.value = path;
                     showFolderSelector.value = false;
+                };
+
+                // 4. ✅ 去重文件夹选择逻辑
+                const selectDedupeFolder = (path) => {
+                    dedupeTargetPath.value = path;
+                    showDedupeFolderSelector.value = false;
                 };
 
                 const saveTasksConfig = async () => {
@@ -841,7 +863,6 @@
                         status.value = data;
                         isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
                         
-                        // 收到 done 信号时，强制刷新一次列表
                         if (data.status === 'done' && currentTab.value === 'dedupe') {
                             fetchStatus(false);
                         }
@@ -884,7 +905,9 @@
                     folderSelectorList, saveTasksConfig, runTask, taskLogs, fetchLogs, getTaskName,
                     // Dedupe
                     results, isAiResult, selectedFiles, isSelected, toggleSelect, deleteSelected,
-                    saveConfig, fetchModels, startScanAll, startAnalyze, selectFolder
+                    saveConfig, fetchModels, startScanAll, startAnalyze, selectFolder,
+                    // Dedupe New
+                    dedupeTargetPath, showDedupeFolderSelector, selectDedupeFolder
                 };
             }
         }).mount('#app');
