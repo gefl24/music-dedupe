@@ -20,20 +20,23 @@ from mutagen.id3 import ID3NoHeaderError
 from thefuzz import fuzz
 from PIL import Image
 import io
+import warnings
+
+# 忽略 google.generativeai 的弃用警告
+warnings.filterwarnings('ignore', category=FutureWarning, module='google.generativeai')
 
 DATA_DIR = "/data"
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 DB_FILE = os.path.join(DATA_DIR, "metadata.db")
 LOG_FILE = os.path.join(DATA_DIR, "app.log")
 
-# ✅ 配置日志轮转
 def setup_logging():
     logger = logging.getLogger("MusicManager")
     logger.setLevel(logging.INFO)
     
     handler = RotatingFileHandler(
         LOG_FILE,
-        maxBytes=10*1024*1024,  # 10MB
+        maxBytes=10*1024*1024,
         backupCount=5
     )
     formatter = logging.Formatter('[%(asctime)s] %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -44,7 +47,6 @@ def setup_logging():
 
 logger = setup_logging()
 
-# ✅ 元数据数据库管理
 class MetadataDB:
     def __init__(self, db_path=DB_FILE):
         self.db_path = db_path
@@ -76,7 +78,7 @@ class MetadataDB:
     def get_conn(self):
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode = WAL")  # 性能优化
+        conn.execute("PRAGMA journal_mode = WAL")
         try:
             yield conn
         finally:
@@ -94,7 +96,6 @@ class MetadataDB:
             conn.commit()
     
     def batch_save(self, metadata_list):
-        """批量保存，提高性能"""
         with self.get_conn() as conn:
             for meta in metadata_list:
                 conn.execute("""
@@ -140,12 +141,16 @@ class MetadataDB:
             conn.commit()
     
     def optimize(self):
-        """数据库优化"""
         with self.get_conn() as conn:
             conn.execute("VACUUM")
             conn.execute("ANALYZE")
 
 meta_db = MetadataDB()
+
+# ✅ 前置声明任务执行函数
+def run_task_wrapper(task_id):
+    """任务执行包装器 - 前置声明"""
+    pass  # 实际实现在后面
 
 class AppState:
     def __init__(self):
@@ -177,7 +182,6 @@ class AppState:
         self.update_scheduler()
         self.scheduler.start()
         
-        # ✅ 并发执行器
         self.executor = ThreadPoolExecutor(max_workers=4)
 
     def log(self, msg):
@@ -256,10 +260,10 @@ class AppState:
                     parts = conf["cron"].split()
                     if len(parts) == 5:
                         self.scheduler.add_job(
-                            run_task_wrapper,
+                            lambda tid=task_id: run_task_wrapper_impl(tid),  # ✅ 使用 lambda 避免早期绑定
                             CronTrigger(minute=parts[0], hour=parts[1], day=parts[2], 
                                       month=parts[3], day_of_week=parts[4]),
-                            args=[task_id],
+                            args=[],
                             id=task_id,
                             replace_existing=True
                         )
@@ -269,16 +273,13 @@ class AppState:
 
 state = AppState()
 
-# ✅ 流式文件生成器，降低内存使用
 def file_generator(start_dir):
-    """逐个生成文件路径，避免一次性加载"""
     for root, _, filenames in os.walk(start_dir):
         for filename in filenames:
             if filename.lower().endswith(('.mp3', '.flac', '.m4a', '.wma')):
                 yield os.path.join(root, filename)
 
 def get_metadata(path):
-    """提取文件元数据"""
     filename = os.path.basename(path)
     try:
         size_mb = round(os.path.getsize(path) / (1024 * 1024), 2)
@@ -341,7 +342,6 @@ def get_metadata(path):
     }
 
 def get_dir_structure(current_path=None):
-    """获取目录结构"""
     if not current_path:
         target_dir = state.music_dir
     else:
@@ -368,12 +368,10 @@ def get_dir_structure(current_path=None):
     }
 
 def cleanup_memory():
-    """定期清理内存"""
     gc.collect()
     state.log("Memory cleanup completed")
 
 def task_scan_and_group(target_path=None):
-    """优化版扫描，使用流式处理"""
     state.status = "scanning"
     scan_dir = target_path or state.music_dir
     
@@ -390,7 +388,6 @@ def task_scan_and_group(target_path=None):
     batch = []
     file_count = 0
     
-    # ✅ 流式处理文件
     for f_path in file_generator(scan_dir):
         try:
             meta = get_metadata(f_path)
@@ -411,9 +408,8 @@ def task_scan_and_group(target_path=None):
         meta_db.batch_save(batch)
     
     state.total = len(state.files)
-    state.message = f"扫描完成，发现 {state.total} 个文件，正在进行模糊分组..."
+    state.message = f"扫描完成,发现 {state.total} 个文件,正在进行模糊分组..."
     
-    # ✅ 优化分组逻辑
     sorted_files = sorted(state.files, key=lambda x: x['search_text'])
     candidates = []
     
@@ -436,11 +432,10 @@ def task_scan_and_group(target_path=None):
     
     state.candidates = candidates
     state.status = "idle"
-    state.message = f"扫描完成，发现 {len(state.candidates)} 组疑似重复。"
+    state.message = f"扫描完成,发现 {len(state.candidates)} 组疑似重复。"
     cleanup_memory()
 
 def task_analyze_with_gemini():
-    """AI分析重复"""
     if not state.api_key:
         state.status = "error"
         state.message = "API Key 未配置"
@@ -510,7 +505,6 @@ Return ONLY JSON: {{"results": [{{"group_id": int, "is_duplicate": bool, "reason
     cleanup_memory()
 
 def task_dedupe_quality(target_dir):
-    """并发处理去质量重"""
     deleted_count = 0
     
     def quality_score(path):
@@ -557,7 +551,6 @@ def task_dedupe_quality(target_dir):
                     groups[base_name] = []
                 groups[base_name].append(full_path)
     
-    # ✅ 并发处理
     with ThreadPoolExecutor(max_workers=4) as executor:
         futures = [executor.submit(process_group, name, paths) for name, paths in groups.items()]
         for future in as_completed(futures):
@@ -566,11 +559,10 @@ def task_dedupe_quality(target_dir):
             except Exception as e:
                 state.log(f"Error: {e}")
     
-    state.log(f"音质去重完成，共删除 {deleted_count} 个文件")
+    state.log(f"音质去重完成,共删除 {deleted_count} 个文件")
     cleanup_memory()
 
 def task_clean_short(target_dir):
-    """删除短音频"""
     threshold = state.tasks_config["clean_short"].get("min_duration", 60)
     deleted_count = 0
     
@@ -595,10 +587,9 @@ def task_clean_short(target_dir):
                 except Exception as e:
                     pass
     
-    state.log(f"短音频清理完成，共删除 {deleted_count} 个文件")
+    state.log(f"短音频清理完成,共删除 {deleted_count} 个文件")
 
 def task_extract_meta(target_dir):
-    """提取元数据和专辑封面"""
     processed_count = 0
     
     for root, _, files in os.walk(target_dir):
@@ -610,7 +601,6 @@ def task_extract_meta(target_dir):
                 try:
                     meta = get_metadata(path)
                     
-                    # ✅ 生成 NFO 文件
                     nfo_path = os.path.join(root, f"{base_name}.nfo")
                     if not os.path.exists(nfo_path):
                         duration_str = f"{int(meta['duration']//60)}:{meta['duration']%60:02d}"
@@ -626,7 +616,6 @@ def task_extract_meta(target_dir):
                             nfo_file.write(nfo_content)
                         processed_count += 1
                     
-                    # ✅ 提取封面
                     cover_target = os.path.join(root, "folder.jpg")
                     if os.path.exists(cover_target):
                         cover_target = os.path.join(root, f"{base_name}.jpg")
@@ -659,10 +648,9 @@ def task_extract_meta(target_dir):
                 except Exception as e:
                     state.log(f"Error extracting meta from {f}: {e}")
     
-    state.log(f"元数据提取完成，共处理 {processed_count} 个文件")
+    state.log(f"元数据提取完成,共处理 {processed_count} 个文件")
 
 def task_clean_junk(target_dir):
-    """清理垃圾文件"""
     cleaned_count = 0
     music_exts = {'.mp3', '.flac', '.wav', '.m4a', '.wma', '.ape', '.ogg'}
     junk_exts = {'.nfo', '.jpg', '.jpeg', '.png', '.lrc', '.txt'}
@@ -692,10 +680,11 @@ def task_clean_junk(target_dir):
             except:
                 pass
     
-    state.log(f"垃圾清理完成，清理 {cleaned_count} 个文件")
+    state.log(f"垃圾清理完成,清理 {cleaned_count} 个文件")
 
-def run_task_wrapper(task_id):
-    """任务执行包装器"""
+# ✅ 实际任务执行实现
+def run_task_wrapper_impl(task_id):
+    """任务执行包装器的实际实现"""
     target = state.task_target_path
     if target and os.path.exists(target):
         scan_dir = target
@@ -719,8 +708,12 @@ def run_task_wrapper(task_id):
     except Exception as e:
         state.log(f"❌ 任务 {task_id} 失败: {str(e)}")
 
+# ✅ 更新前置声明的函数
+def run_task_wrapper(task_id):
+    """任务执行包装器 - 供外部调用"""
+    run_task_wrapper_impl(task_id)
+
 def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None, album=None):
-    """批量更新元数据"""
     updated_count = 0
     for path in file_paths:
         if not os.path.exists(path):
@@ -744,7 +737,6 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
                 audio.save()
                 updated_count += 1
                 
-                # 更新缓存
                 for f in state.files:
                     if f['path'] == path:
                         if artist:
@@ -761,88 +753,4 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
     
     return updated_count
 
-def batch_rename_files(file_paths, pattern="{artist} - {title}"):
-    """批量重命名文件"""
-    renamed_count = 0
-    for path in file_paths:
-        if not os.path.exists(path):
-            continue
-        
-        meta = next((f for f in state.files if f['path'] == path), None)
-        if not meta:
-            meta = get_metadata(path)
-        
-        def fmt(t):
-            return t.replace(" / ", " & ").replace("/", " & ")
-        
-        def sanitize(t):
-            return (t.replace("\\", "_").replace("/", "_").replace(":", "-")
-                   .replace("*", "").replace("?", "").replace("\"", "'")
-                   .replace("<", "(").replace(">", ")").replace("|", "_"))
-        
-        safe_artist = sanitize(fmt(meta['artist'])) or "Unknown"
-        safe_album_artist = sanitize(fmt(meta['album_artist'])) or "Unknown"
-        safe_title = sanitize(meta['title']) or sanitize(meta['filename'])
-        safe_album = sanitize(meta['album']) or "Unknown"
-        
-        ext = os.path.splitext(path)[1]
-        new_name = (pattern.replace("{artist}", safe_artist)
-                   .replace("{album_artist}", safe_album_artist)
-                   .replace("{title}", safe_title)
-                   .replace("{album}", safe_album) + ext)
-        
-        dir_name = os.path.dirname(path)
-        new_path = os.path.join(dir_name, new_name)
-        
-        if path != new_path:
-            try:
-                os.rename(path, new_path)
-                renamed_count += 1
-                if meta:
-                    meta['path'] = new_path
-                    meta['filename'] = new_name
-            except Exception as e:
-                state.log(f"Rename failed {path}: {e}")
-    
-    return renamed_count
-
-def fix_single_metadata_ai(path):
-    """使用 AI 修复单个文件的元数据"""
-    if not state.api_key:
-        return {"error": "API Key Missing"}
-    if not os.path.exists(path):
-        return {"error": "File not found"}
-    
-    state.apply_proxy()
-    try:
-        genai.configure(api_key=state.api_key)
-        model = genai.GenerativeModel(state.model_name)
-        meta = get_metadata(path)
-        
-        prompt = f"""I have a music file: "{meta['filename']}". 
-Tags: Artist="{meta['artist']}", Album Artist="{meta['album_artist']}", Title="{meta['title']}", Album="{meta['album']}". 
-Role: Expert Music Librarian. 
-Task: Infer correct metadata based on filename and current tags.
-Return JSON ONLY: {{"artist": "string", "album_artist": "string", "title": "string", "album": "string"}}"""
-        
-        resp = model.generate_content(prompt, generation_config={"response_mime_type": "application/json"})
-        ai_data = json.loads(resp.text)
-        
-        batch_update_metadata([path], ai_data.get('artist'), ai_data.get('album_artist'), 
-                            ai_data.get('title'), ai_data.get('album'))
-        return {"success": True, "data": ai_data}
-    
-    except Exception as e:
-        return {"error": str(e)}
-
-def delete_file(path):
-    """删除文件"""
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-            meta_db.delete_by_path(path)
-            state.files = [f for f in state.files if f['path'] != path]
-            return True
-    except:
-        pass
-    return False
+def batch_
