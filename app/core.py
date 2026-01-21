@@ -5,7 +5,6 @@ import asyncio
 import time
 import sqlite3
 import gc
-import shutil
 import warnings
 from datetime import datetime
 from contextlib import contextmanager
@@ -28,9 +27,9 @@ from thefuzz import fuzz
 from PIL import Image
 import io
 
-# 1. ✅ 屏蔽弃用警告 (Fix: Deprecation Warnings)
-warnings.filterwarnings('ignore', category=UserWarning, module='google.generativeai')
+# 忽略 google.generativeai 的弃用警告
 warnings.filterwarnings('ignore', category=FutureWarning, module='google.generativeai')
+warnings.filterwarnings('ignore', category=UserWarning, module='google.generativeai')
 
 DATA_DIR = "/data"
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
@@ -154,14 +153,9 @@ class MetadataDB:
 
 meta_db = MetadataDB()
 
-# 2. ✅ 前置声明任务执行函数 (Fix: Forward Declaration)
-# 这里的定义是为了让 AppState 初始化时不报错，实际逻辑会在文件末尾覆盖
+# 前置声明
 def run_task_wrapper(task_id):
-    """
-    Placeholder for the actual task runner.
-    The real implementation is at the bottom of the file.
-    """
-    pass 
+    run_task_wrapper_impl(task_id)
 
 class AppState:
     def __init__(self):
@@ -270,9 +264,8 @@ class AppState:
                 try:
                     parts = conf["cron"].split()
                     if len(parts) == 5:
-                        # 3. ✅ 使用 lambda 闭包修复循环绑定问题 (Fix: Lambda Binding)
                         self.scheduler.add_job(
-                            lambda tid=task_id: run_task_wrapper(tid),
+                            lambda tid=task_id: run_task_wrapper_impl(tid),
                             CronTrigger(minute=parts[0], hour=parts[1], day=parts[2], 
                                       month=parts[3], day_of_week=parts[4]),
                             id=task_id,
@@ -382,13 +375,16 @@ def cleanup_memory():
     gc.collect()
     state.log("Memory cleanup completed")
 
+# ✅ 优化后的扫描与分组逻辑 (Fix: Better Grouping)
 def task_scan_and_group(target_path=None):
     state.status = "scanning"
     scan_dir = target_path or state.music_dir
     
     if target_path:
+        # 如果指定了路径，只移除该路径下的旧缓存
         state.files = [f for f in state.files if not f['path'].startswith(target_path)]
     else:
+        # 全量扫描则清空
         state.files = []
         meta_db.clear_all()
     
@@ -399,6 +395,7 @@ def task_scan_and_group(target_path=None):
     batch = []
     file_count = 0
     
+    state.message = "正在扫描文件..."
     for f_path in file_generator(scan_dir):
         try:
             meta = get_metadata(f_path)
@@ -419,31 +416,49 @@ def task_scan_and_group(target_path=None):
         meta_db.batch_save(batch)
     
     state.total = len(state.files)
-    state.message = f"扫描完成,发现 {state.total} 个文件,正在进行模糊分组..."
+    state.message = f"扫描完成, 正在按标题进行模糊匹配..."
     
-    sorted_files = sorted(state.files, key=lambda x: x['search_text'])
+    # --- 核心改进：基于标题相似度分组 ---
     candidates = []
+    
+    # 1. 辅助函数：获取用于比较的 key (优先 Title，其次 Filename，都转小写)
+    def get_sort_key(item):
+        key = item.get('title') or os.path.splitext(item['filename'])[0]
+        return key.lower().strip()
+
+    # 2. 先排序，让相似标题的文件靠在一起
+    sorted_files = sorted(state.files, key=get_sort_key)
     
     if sorted_files:
         current_group = [sorted_files[0]]
+        
         for i in range(1, len(sorted_files)):
             state.progress = i
             prev = current_group[0]
             curr = sorted_files[i]
             
-            if fuzz.token_set_ratio(prev['search_text'], curr['search_text']) > 80:
+            prev_key = get_sort_key(prev)
+            curr_key = get_sort_key(curr)
+            
+            # 使用 fuzz.ratio 进行高精度匹配 (只比较标题)
+            # 阈值设为 85，既能容忍少量差异，又能避免完全不相关的歌
+            similarity = fuzz.ratio(prev_key, curr_key)
+            
+            if similarity > 85:
                 current_group.append(curr)
             else:
+                # 如果当前组超过1个文件，则为疑似重复组
                 if len(current_group) > 1:
                     candidates.append(current_group)
                 current_group = [curr]
         
+        # 处理最后一组
         if len(current_group) > 1:
             candidates.append(current_group)
     
     state.candidates = candidates
-    state.status = "idle"
-    state.message = f"扫描完成,发现 {len(state.candidates)} 组疑似重复。"
+    state.status = "idle" # 扫描结束，状态回 idle，等待用户操作
+    state.message = f"扫描完成, 发现 {len(state.candidates)} 组疑似重复 (基于标题相似度)。"
     cleanup_memory()
 
 def task_analyze_with_gemini():
@@ -454,7 +469,8 @@ def task_analyze_with_gemini():
     
     state.apply_proxy()
     state.status = "analyzing"
-    state.results = []
+    # 注意：这里不要轻易清空 state.candidates，否则前端会瞬间变空
+    state.results = [] 
     
     try:
         genai.configure(api_key=state.api_key)
@@ -612,7 +628,6 @@ def task_extract_meta(target_dir):
                 try:
                     meta = get_metadata(path)
                     
-                    # 1. 生成 NFO (Emby 元数据)
                     nfo_path = os.path.join(root, f"{base_name}.nfo")
                     if not os.path.exists(nfo_path):
                         duration_str = f"{int(meta['duration']//60)}:{meta['duration']%60:02d}"
@@ -628,17 +643,12 @@ def task_extract_meta(target_dir):
                             nfo_file.write(nfo_content)
                         processed_count += 1
                     
-                    # 2. 提取封面逻辑 (优化版)
-                    # 目标1：同名图片 (歌曲封面)
+                    # 封面提取优化: 总是生成同名封面，缺失则生成folder.jpg
                     song_cover_path = os.path.join(root, f"{base_name}.jpg")
-                    # 目标2：文件夹图片 (专辑封面)
                     folder_cover_path = os.path.join(root, "folder.jpg")
                     
-                    # 只有当任一目标缺失时，才进行提取操作
                     if not os.path.exists(song_cover_path) or not os.path.exists(folder_cover_path):
                         art_data = None
-                        
-                        # 提取内嵌图片数据
                         if f.lower().endswith('.mp3'):
                             try:
                                 audio = MP3(path, ID3=EasyID3)
@@ -658,13 +668,11 @@ def task_extract_meta(target_dir):
                                 pass
                         
                         if art_data:
-                            # 写入同名封面 (歌曲封面)
                             if not os.path.exists(song_cover_path):
                                 with open(song_cover_path, "wb") as img_file:
                                     img_file.write(art_data)
                                 state.log(f"[元数据] 生成歌曲封面: {os.path.basename(song_cover_path)}")
                             
-                            # 写入文件夹封面 (专辑封面 - 仅当不存在时)
                             if not os.path.exists(folder_cover_path):
                                 with open(folder_cover_path, "wb") as img_file:
                                     img_file.write(art_data)
@@ -731,7 +739,6 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
                 audio.save()
                 updated_count += 1
                 
-                # Update memory cache
                 for f in state.files:
                     if f['path'] == path:
                         if artist:
@@ -748,10 +755,7 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
     
     return updated_count
 
-# 4. ✅ 补全缺失的逻辑 (Fix: Missing Implementations)
-
 def batch_rename_files(paths, pattern):
-    """批量重命名文件"""
     renamed_count = 0
     for path in paths:
         if not os.path.exists(path):
@@ -760,16 +764,11 @@ def batch_rename_files(paths, pattern):
         try:
             meta = get_metadata(path)
             
-            # ✅ 内部辅助函数：处理多值分隔符，将 " / " 转换为 " & "
             def clean_tag_for_filename(text):
                 if not text:
                     return None
-                # 1. 将标准分隔符 " / " 替换为 " & "
-                # 2. 将可能的路径非法字符 "/" 替换为 " & "
-                # 3. 将分号 ";" 替换为 " & "
                 return text.replace(" / ", " & ").replace("/", " & ").replace(";", " & ")
 
-            # 安全检查：确保有必要的元数据，并应用格式化
             safe_meta = {
                 'artist': clean_tag_for_filename(meta['artist']) or 'Unknown Artist',
                 'title': clean_tag_for_filename(meta['title']) or meta['filename'],
@@ -777,20 +776,16 @@ def batch_rename_files(paths, pattern):
                 'album_artist': clean_tag_for_filename(meta['album_artist']) or 'Unknown Artist'
             }
             
-            # 格式化新文件名
             try:
                 new_filename_base = pattern.format(**safe_meta)
             except KeyError as e:
-                # 防止 pattern 中包含不支持的键
                 state.log(f"Rename pattern error: missing key {e}")
                 continue
 
-            # 移除非法字符 (Windows/Linux 通用限制)
             invalid_chars = '<>:"/\\|?*'
             for char in invalid_chars:
                 new_filename_base = new_filename_base.replace(char, '')
             
-            # 去除首尾空格
             new_filename_base = new_filename_base.strip()
 
             ext = os.path.splitext(path)[1]
@@ -798,7 +793,6 @@ def batch_rename_files(paths, pattern):
             dir_name = os.path.dirname(path)
             new_path = os.path.join(dir_name, new_filename)
             
-            # 处理文件名冲突
             counter = 1
             while os.path.exists(new_path) and new_path != path:
                 new_path = os.path.join(dir_name, f"{new_filename_base} ({counter}){ext}")
@@ -806,13 +800,10 @@ def batch_rename_files(paths, pattern):
             
             if new_path != path:
                 os.rename(path, new_path)
-                
-                # 更新数据库
                 meta_db.delete_by_path(path)
                 new_meta = get_metadata(new_path)
                 meta_db.save_metadata(new_meta)
                 
-                # 更新内存缓存
                 for f in state.files:
                     if f['path'] == path:
                         f.update(new_meta)
@@ -825,11 +816,9 @@ def batch_rename_files(paths, pattern):
     return renamed_count
 
 def delete_file(path):
-    """删除单个文件及其数据库记录"""
     try:
         if os.path.exists(path):
             os.remove(path)
-        
         meta_db.delete_by_path(path)
         state.files = [f for f in state.files if f['path'] != path]
         return True
@@ -838,7 +827,6 @@ def delete_file(path):
         return False
 
 def fix_single_metadata_ai(path):
-    """使用 AI 修复单个文件的元数据"""
     if not state.api_key:
         return {"error": "API Key not configured"}
     
@@ -871,7 +859,6 @@ Return ONLY JSON:
         )
         result = json.loads(resp.text)
         
-        # 应用元数据
         paths = [path]
         batch_update_metadata(
             paths, 
@@ -887,13 +874,7 @@ Return ONLY JSON:
         state.log(f"AI Fix Error: {e}")
         return {"error": str(e)}
 
-# 5. ✅ 真正的任务执行逻辑 (Fix: Actual Task Execution)
-# 这个函数会覆盖之前前置声明的函数
-def run_task_wrapper(task_id):
-    """
-    实际的任务执行器。
-    由 AppState 的调度器通过 lambda 调用。
-    """
+def run_task_wrapper_impl(task_id):
     target = state.task_target_path
     if target and os.path.exists(target):
         scan_dir = target
@@ -911,10 +892,8 @@ def run_task_wrapper(task_id):
         elif task_id == "clean_junk":
             task_clean_junk(scan_dir)
         
-        if task_id in state.tasks_config:
-            state.tasks_config[task_id]["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            state.save_config()
-            
+        state.tasks_config[task_id]["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        state.save_config()
         state.log(f"✅ 任务完成: {task_id}")
     except Exception as e:
         state.log(f"❌ 任务 {task_id} 失败: {str(e)}")
