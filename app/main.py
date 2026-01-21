@@ -1,6 +1,6 @@
 import os
 import secrets
-import threading # ✅ 1. 修复: 补全 threading 引用
+import threading
 import base64
 import binascii
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status, APIRouter
@@ -21,7 +21,7 @@ WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
 
 security = HTTPBasic()
 
-# ✅ 2. 认证函数 (仅用于 HTTP 请求)
+# 认证函数
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, WEB_USER)
     correct_password = secrets.compare_digest(credentials.password, WEB_PASSWORD)
@@ -89,9 +89,6 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 # --- 路由配置 ---
-
-# ✅ 3. 创建受保护的 API 路由组
-# 所有 API 和静态页面都通过此 router 加载，自动应用 Basic Auth
 secure_router = APIRouter(dependencies=[Depends(get_current_username)])
 
 @secure_router.get("/")
@@ -133,9 +130,48 @@ async def get_status():
         "config": config_data
     }
 
+# ✅ 修复: 增加分页 + 格式化输出 (解决列表显示空白问题)
 @secure_router.get("/api/candidates")
-async def get_candidates():
-    return {"results": core.state.candidates}
+async def get_candidates(page: int = 1, page_size: int = 20):
+    all_data = core.state.candidates
+    total = len(all_data)
+    
+    # 计算分页切片
+    start = (page - 1) * page_size
+    end = start + page_size
+    sliced_data = all_data[start:end]
+    
+    # 格式化数据以匹配前端结构
+    formatted = []
+    for group in sliced_data:
+        formatted.append({
+            "files": group,
+            "reason": "本地模糊匹配 (疑似)"
+        })
+        
+    return {
+        "results": formatted,
+        "total": total,
+        "page": page,
+        "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
+    }
+
+@secure_router.get("/api/results")
+async def get_results(page: int = 1, page_size: int = 20):
+    all_data = core.state.results
+    total = len(all_data)
+    
+    start = (page - 1) * page_size
+    end = start + page_size
+    sliced_data = all_data[start:end]
+    
+    # AI 结果通常已经是格式化好的，但也支持分页
+    return {
+        "results": sliced_data,
+        "total": total,
+        "page": page,
+        "total_pages": (total + page_size - 1) // page_size if page_size > 0 else 1
+    }
 
 @secure_router.post("/api/config")
 async def save_config(req: ConfigRequest):
@@ -192,10 +228,6 @@ async def analyze_duplicates():
     t.start()
     return {"status": "started"}
 
-@secure_router.get("/api/results")
-async def get_results():
-    return {"results": core.state.results}
-
 @secure_router.post("/api/delete")
 async def delete_files(req: DeleteRequest):
     deleted = []
@@ -207,10 +239,25 @@ async def delete_files(req: DeleteRequest):
             failed.append(path)
     return {"deleted": deleted, "failed": failed}
 
-# 将受保护的路由注册到 App
 app.include_router(secure_router)
 
-# ✅ 4. WebSocket 路由 (不添加 Depends 依赖，解决 TypeError 和 闪烁)
+# WebSocket 辅助函数
+def check_websocket_auth(websocket: WebSocket) -> bool:
+    auth_header = websocket.headers.get("authorization")
+    if not auth_header or not auth_header.startswith("Basic "):
+        return False
+    try:
+        encoded_creds = auth_header.split(" ")[1]
+        decoded_bytes = base64.b64decode(encoded_creds)
+        decoded_str = decoded_bytes.decode("utf-8")
+        username, password = decoded_str.split(":", 1)
+        
+        is_user_ok = secrets.compare_digest(username, WEB_USER)
+        is_pass_ok = secrets.compare_digest(password, WEB_PASSWORD)
+        return is_user_ok and is_pass_ok
+    except (binascii.Error, ValueError, UnicodeDecodeError):
+        return False
+
 @app.websocket("/ws/progress")
 async def websocket_endpoint(websocket: WebSocket):
     await manager.connect(websocket)
