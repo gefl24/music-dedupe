@@ -22,7 +22,6 @@
         
         .col-checkbox { width: 40px; }
         .col-action { width: 90px; text-align: center; }
-        /* 调整列宽以适应新增加的列 */
         .col-file { width: 200px; } 
         
         .log-box { font-family: 'Courier New', Courier, monospace; font-size: 12px; line-height: 1.4; }
@@ -48,6 +47,17 @@
             border-radius: 4px; margin-bottom: 4px; z-index: 100;
         }
         .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); border: 0; }
+        
+        /* 布局修正 */
+        .layout-split { display: flex; gap: 1.5rem; height: 100%; }
+        .layout-left { width: 33.3333%; display: flex; flex-direction: column; gap: 1rem; overflow-y: auto; padding-right: 4px; }
+        .layout-right { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        
+        @media (max-width: 1024px) {
+            .layout-split { flex-direction: column; overflow-y: auto; }
+            .layout-left, .layout-right { width: 100%; overflow: visible; }
+            .layout-right { height: 500px; flex: none; }
+        }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800 h-screen flex flex-col overflow-hidden">
@@ -295,69 +305,69 @@
                 </div>
             </div>
 
-            <div v-show="currentTab === 'tasks'" class="h-full flex gap-6">
-                <div class="flex-1 overflow-y-auto pr-2">
-                    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 mb-4 shadow-sm">
+            <div v-show="currentTab === 'tasks'" class="layout-split">
+                <div class="layout-left">
+                    <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-4 shadow-sm shrink-0">
                         <h2 class="font-bold text-indigo-800 mb-2 flex items-center gap-2 text-sm">
                             <i class="fa-solid fa-crosshairs"></i> 任务作用域
                         </h2>
                         <div class="flex gap-2">
-                            <input type="text" v-model="taskTargetFolder" class="flex-1 border border-indigo-200 p-2 rounded text-sm bg-white font-mono" readonly>
-                            <button @click="showFolderSelector = !showFolderSelector" class="bg-indigo-600 text-white px-3 rounded text-sm hover:bg-indigo-700">更改...</button>
+                            <input type="text" v-model="taskTargetFolder" class="flex-1 border border-indigo-200 p-2 rounded text-xs bg-white font-mono" readonly>
+                            <button @click="showFolderSelector = !showFolderSelector" class="bg-indigo-600 text-white px-2 rounded text-xs hover:bg-indigo-700">选择</button>
                         </div>
                         <div v-if="showFolderSelector" class="mt-2 bg-white border rounded shadow-lg max-h-48 overflow-y-auto">
-                            <div @click="selectTaskFolder(config.music_dir)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm font-bold border-b">/ (根目录)</div>
-                            <div v-for="dir in folderSelectorList" :key="dir.path" @click="selectTaskFolder(dir.path)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-sm text-gray-700 border-b border-gray-50">
+                            <div @click="selectTaskFolder(config.music_dir)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs font-bold border-b">/ (根目录)</div>
+                            <div v-for="dir in folderSelectorList" :key="dir.path" @click="selectTaskFolder(dir.path)" class="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs text-gray-700 border-b border-gray-50">
                                 <i class="fa-regular fa-folder mr-2 text-yellow-500"></i> {{ dir.name }}
                             </div>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                        <div v-for="(task, key) in taskConfig" :key="key" class="bg-white rounded-xl shadow-sm p-4 border border-gray-200 hover:border-indigo-300 transition-colors">
-                            <div class="flex justify-between items-start mb-3">
+                    <div class="flex flex-col gap-3">
+                        <div v-for="(task, key) in taskConfig" :key="key" class="bg-white rounded-lg shadow-sm p-3 border border-gray-200 hover:border-indigo-300 transition-colors">
+                            <div class="flex justify-between items-start mb-2">
                                 <div>
-                                    <h3 class="font-bold text-gray-800">{{ getTaskName(key) }}</h3>
+                                    <h3 class="font-bold text-gray-800 text-sm">{{ getTaskName(key) }}</h3>
                                     <div class="flex items-center gap-2 mt-1">
                                         <span class="text-xs text-gray-400 font-mono">Cron:</span>
-                                        <input type="text" v-model="task.cron" class="border-b border-gray-300 text-xs text-gray-600 focus:outline-none focus:border-indigo-500 w-32 font-mono">
+                                        <input type="text" v-model="task.cron" class="border-b border-gray-300 text-xs text-gray-600 focus:outline-none focus:border-indigo-500 w-24 font-mono">
                                     </div>
                                 </div>
                                 <label class="relative inline-flex items-center cursor-pointer">
                                     <input type="checkbox" v-model="task.enabled" class="sr-only peer">
-                                    <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
+                                    <div class="w-8 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-indigo-600"></div>
                                 </label>
                             </div>
                             
-                            <div v-if="key === 'clean_short'" class="mb-3">
-                                <label class="text-xs text-gray-500">最小时长(秒):</label>
-                                <input type="number" v-model.number="task.min_duration" class="border rounded px-1 w-16 text-xs ml-2">
+                            <div v-if="key === 'clean_short'" class="mb-2">
+                                <label class="text-xs text-gray-500">最小时长(s):</label>
+                                <input type="number" v-model.number="task.min_duration" class="border rounded px-1 w-12 text-xs ml-2">
                             </div>
                             
                             <div class="flex justify-between items-center mt-2 border-t pt-2">
-                                <span class="text-[10px] text-gray-400">上次: {{ task.last_run || '无' }}</span>
+                                <span class="text-[10px] text-gray-400 truncate max-w-[100px]" :title="task.last_run">上次: {{ task.last_run || '无' }}</span>
                                 <button @click="runTask(key)" class="text-xs bg-indigo-50 text-indigo-600 px-2 py-1 rounded hover:bg-indigo-100">
                                     <i class="fa-solid fa-play mr-1"></i> 执行
                                 </button>
                             </div>
                         </div>
-                    </div>
-                    
-                    <div class="flex justify-end mt-4">
-                        <button @click="saveTasksConfig" class="bg-indigo-600 text-white px-6 py-2 rounded-lg shadow hover:bg-indigo-700 transition text-sm font-bold">
-                            <i class="fa-solid fa-save"></i> 保存设置
+                        
+                        <button @click="saveTasksConfig" class="bg-indigo-600 text-white w-full py-2 rounded shadow hover:bg-indigo-700 transition text-sm font-bold mt-2">
+                            <i class="fa-solid fa-save mr-1"></i> 保存计划设置
                         </button>
                     </div>
                 </div>
 
-                <div class="w-80 bg-gray-900 rounded-lg shadow-lg flex flex-col overflow-hidden shrink-0 text-gray-300 border border-gray-800">
-                    <div class="p-2 border-b border-gray-700 bg-gray-800 text-xs font-bold flex justify-between items-center">
-                        <span><i class="fa-solid fa-terminal mr-2 text-green-500"></i> 系统日志</span>
-                        <button @click="fetchLogs" class="hover:text-white"><i class="fa-solid fa-sync"></i></button>
-                    </div>
-                    <div class="flex-1 overflow-y-auto p-2 log-box bg-[#0d1117] text-xs">
-                        <div v-for="(log, i) in taskLogs" :key="i" class="mb-1 border-b border-gray-800 pb-0.5">
-                            <span class="text-green-600 mr-1">></span> {{ log }}
+                <div class="layout-right">
+                    <div class="bg-gray-900 rounded-lg shadow-lg flex flex-col overflow-hidden h-full text-gray-300 border border-gray-800">
+                        <div class="p-2 border-b border-gray-700 bg-gray-800 text-xs font-bold flex justify-between items-center shrink-0">
+                            <span><i class="fa-solid fa-terminal mr-2 text-green-500"></i> 系统实时日志</span>
+                            <button @click="fetchLogs" class="hover:text-white"><i class="fa-solid fa-sync"></i></button>
+                        </div>
+                        <div class="flex-1 overflow-y-auto p-3 log-box bg-[#0d1117] text-xs">
+                            <div v-for="(log, i) in taskLogs" :key="i" class="mb-1 border-b border-gray-800 pb-0.5">
+                                <span class="text-green-600 mr-1">></span> {{ log }}
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -589,11 +599,19 @@
                 const fetchStatus = async () => {
                     const data = await apiCall('/api/status');
                     status.value = { ...data };
-                    config.value = data.config;
-                    form.value.apiKey = data.config.masked_key ? '' : ''; // Don't show masked key in input
-                    form.value.proxyUrl = data.config.proxy_url; // Load proxy url
-                    taskConfig.value = data.config.tasks_config;
-                    taskTargetFolder.value = data.config.task_target_path;
+                    // 修正：保存状态到 form 以便回显
+                    if (data.config) {
+                        config.value = data.config;
+                        form.value.modelName = data.config.model_name || 'gemini-1.5-flash';
+                        form.value.proxyUrl = data.config.proxy_url || '';
+                        // 密钥不回显，防止泄露，仅在需要修改时输入
+                        
+                        taskConfig.value = data.config.tasks_config;
+                        taskTargetFolder.value = data.config.task_target_path;
+                    }
+
+                    // 修正：确保 isBusy 状态同步
+                    isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
                     
                     // Initial load of dedupe results if exist
                     if (data.results_count > 0 && results.value.length === 0) {
@@ -641,6 +659,8 @@
                     try {
                         await apiCall('/api/scan', 'POST', { path });
                         showToast('扫描已启动', 'success');
+                        // 立即更新一次状态
+                        setTimeout(fetchStatus, 500);
                     } catch(e) {
                         isBusy.value = false;
                     } finally {
@@ -651,11 +671,13 @@
                 const startScanAll = async () => {
                     isBusy.value = true;
                     await apiCall('/api/scan', 'POST', { path: null });
+                    setTimeout(fetchStatus, 500);
                 };
 
                 const startAnalyze = async () => {
                     isBusy.value = true;
                     await apiCall('/api/analyze', 'POST');
+                    setTimeout(fetchStatus, 500);
                 };
 
                 // Dedupe Selection
@@ -777,7 +799,7 @@
                     taskLogs.value = data.logs;
                 };
 
-                // WebSocket
+                // WebSocket (带自动轮询备份)
                 const connectWS = () => {
                     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
                     const ws = new WebSocket(`${protocol}://${window.location.host}/ws/progress`);
@@ -788,22 +810,32 @@
                         isBusy.value = data.status !== 'idle' && data.status !== 'done' && data.status !== 'error';
                         
                         if (data.status === 'done' && currentTab.value === 'dedupe') {
-                            // If just finished analysis, fetch results
                             if (results.value.length === 0 || results.value.length !== data.results_count) {
-                                fetchStatus(); // Will trigger result fetch
+                                fetchStatus(); 
                             }
                         }
                     };
                     
-                    ws.onclose = () => setTimeout(connectWS, 2000);
+                    ws.onclose = () => {
+                        // 失败时不要频繁重连，改为依赖轮询
+                        setTimeout(connectWS, 10000); 
+                    };
                 };
 
                 onMounted(() => {
                     fetchStatus();
                     fetchDirs();
-                    refreshFiles(); // Initial file load
+                    refreshFiles();
                     fetchModels();
                     connectWS();
+                    
+                    // 增加轮询机制，作为 WebSocket 失败的备份 (每3秒同步一次)
+                    setInterval(() => {
+                        if (document.visibilityState === 'visible') {
+                            fetchStatus();
+                            if (currentTab.value === 'tasks') fetchLogs();
+                        }
+                    }, 3000);
                 });
 
                 return {
