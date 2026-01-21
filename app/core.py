@@ -745,21 +745,40 @@ def batch_rename_files(paths, pattern):
             
         try:
             meta = get_metadata(path)
-            # 安全检查：确保有必要的元数据
+            
+            # ✅ 内部辅助函数：处理多值分隔符，将 " / " 转换为 " & "
+            def clean_tag_for_filename(text):
+                if not text:
+                    return None
+                # 1. 将标准分隔符 " / " 替换为 " & "
+                # 2. 将可能的路径非法字符 "/" 替换为 " & "
+                # 3. 将分号 ";" 替换为 " & "
+                return text.replace(" / ", " & ").replace("/", " & ").replace(";", " & ")
+
+            # 安全检查：确保有必要的元数据，并应用格式化
             safe_meta = {
-                'artist': meta['artist'] or 'Unknown Artist',
-                'title': meta['title'] or meta['filename'],
-                'album': meta['album'] or 'Unknown Album',
-                'album_artist': meta['album_artist'] or 'Unknown Artist'
+                'artist': clean_tag_for_filename(meta['artist']) or 'Unknown Artist',
+                'title': clean_tag_for_filename(meta['title']) or meta['filename'],
+                'album': clean_tag_for_filename(meta['album']) or 'Unknown Album',
+                'album_artist': clean_tag_for_filename(meta['album_artist']) or 'Unknown Artist'
             }
             
             # 格式化新文件名
-            new_filename_base = pattern.format(**safe_meta)
-            # 移除非法字符
+            try:
+                new_filename_base = pattern.format(**safe_meta)
+            except KeyError as e:
+                # 防止 pattern 中包含不支持的键
+                state.log(f"Rename pattern error: missing key {e}")
+                continue
+
+            # 移除非法字符 (Windows/Linux 通用限制)
             invalid_chars = '<>:"/\\|?*'
             for char in invalid_chars:
                 new_filename_base = new_filename_base.replace(char, '')
             
+            # 去除首尾空格
+            new_filename_base = new_filename_base.strip()
+
             ext = os.path.splitext(path)[1]
             new_filename = f"{new_filename_base}{ext}"
             dir_name = os.path.dirname(path)
