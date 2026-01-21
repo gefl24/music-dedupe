@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#4f46e5">
     <title>音乐管家 Pro</title>
     
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.staticfile.org/vue/3.3.4/vue.global.prod.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
+    <link href="https://cdn.staticfile.org/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     
     <script>
         tailwind.config = {
@@ -69,17 +69,19 @@
                     </div>
                     <div class="flex-1 overflow-y-auto p-2 space-y-1">
                         <div v-if="!isNavRoot" @click="fetchDirs(parentNavPath)" class="px-3 py-2 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-800 cursor-pointer text-sm flex items-center gap-2"><i class="fa-solid fa-level-up-alt text-indigo-400"></i> 返回上级</div>
+                        
                         <div @click="selectFolder('')" class="px-3 py-2 rounded-lg cursor-pointer flex justify-between items-center" :class="currentFolder === '' ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600' : 'hover:bg-gray-50 dark:hover:bg-slate-800'">
-                            <span class="text-sm"><i class="fa-solid fa-music mr-2 text-indigo-500"></i>全部</span>
+                            <span class="text-sm"><i class="fa-solid fa-music mr-2 text-indigo-500"></i>全部文件</span>
                             <span class="text-xs bg-gray-200 dark:bg-slate-700 px-1.5 rounded-md">{{ allFiles.length }}</span>
                         </div>
+                        
                         <div v-for="dir in subDirs" :key="dir.path" 
-                             class="group flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer transition-colors"
+                             class="group flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-800 cursor-pointer transition-colors" 
                              :class="{'bg-indigo-50 dark:bg-indigo-900/20': filterFolder === dir.path, 'hover:bg-gray-50 dark:hover:bg-slate-800': filterFolder !== dir.path}">
                             <div @click="enterDir(dir.path)" class="flex-1 flex items-center gap-2 text-sm truncate text-gray-700 dark:text-slate-300">
                                 <i class="fa-solid fa-folder text-amber-400"></i> {{ dir.name }}
                             </div>
-                            <button @click.stop="scanFolder(dir.path)" class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-indigo-500 transition-opacity" title="扫描此文件夹">
+                            <button @click.stop="scanFolder(dir.path)" class="opacity-0 group-hover:opacity-100 hover:text-indigo-500 text-gray-400 transition-opacity" title="扫描此文件夹">
                                 <i class="fa-solid fa-magnifying-glass text-xs" :class="{'fa-spin': isScanningPath === dir.path}"></i>
                             </button>
                         </div>
@@ -88,22 +90,49 @@
 
                 <div class="flex-1 flex flex-col bg-white dark:bg-slate-900 rounded-2xl border border-gray-200 dark:border-slate-800 shadow-sm overflow-hidden min-w-0">
                     <div class="p-3 border-b border-gray-100 dark:border-slate-800 flex gap-3 items-center">
-                        <div class="relative flex-1"><i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input v-model="searchInput" @input="debouncedSearch" placeholder="搜索..." class="w-full bg-gray-50 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20"></div>
-                        <div class="flex items-center gap-2"><span class="text-xs text-gray-500">每页:</span><select v-model.number="pageSize" @change="changePageSize" class="border border-gray-300 p-1.5 rounded text-sm w-20 bg-white focus:outline-none"><option :value="50">50</option><option :value="100">100</option><option :value="300">300</option><option :value="500">500</option></select></div>
+                        <div class="relative flex-1"><i class="fa-solid fa-search absolute left-3 top-3 text-gray-400 text-sm"></i><input v-model="searchInput" @input="debouncedSearch" placeholder="搜索文件名、标题、艺术家..." class="w-full bg-gray-50 dark:bg-slate-800 border-none rounded-xl py-2.5 pl-10 pr-4 text-sm focus:ring-2 focus:ring-indigo-500/20"></div>
+                        
+                        <div class="flex items-center gap-2 shrink-0">
+                            <span class="text-xs text-gray-500 hidden sm:inline">每页</span>
+                            <select v-model.number="pageSize" @change="changePageSize" class="bg-gray-50 dark:bg-slate-800 border-none rounded-xl py-2.5 px-3 text-sm focus:ring-2 focus:ring-indigo-500/20 outline-none text-gray-600 dark:text-slate-300 cursor-pointer">
+                                <option :value="50">50</option>
+                                <option :value="100">100</option>
+                                <option :value="300">300</option>
+                                <option :value="500">500</option>
+                            </select>
+                        </div>
+                        
                         <button @click="refreshFiles" class="p-2.5 rounded-xl bg-gray-50 dark:bg-slate-800 hover:bg-gray-100 dark:hover:bg-slate-700 transition text-gray-500"><i class="fa-solid fa-rotate-right" :class="{'animate-spin': isListLoading}"></i></button>
                     </div>
+                    
                     <div class="flex-1 overflow-y-auto relative">
                         <div v-if="isListLoading" class="p-4 space-y-3"><div v-for="i in 10" :key="i" class="flex gap-4 animate-pulse"><div class="w-5 h-5 bg-gray-200 rounded skeleton"></div><div class="w-1/3 h-4 bg-gray-200 rounded skeleton"></div></div></div>
+                        <div v-else-if="allFiles.length === 0" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+                            <i class="fa-solid fa-folder-open text-4xl mb-3 opacity-30"></i>
+                            <p class="text-sm font-medium">暂无数据</p>
+                            <p class="text-xs mt-1 opacity-70">请在左侧选择文件夹并点击扫描</p>
+                        </div>
                         <table v-else class="w-full text-sm text-left border-collapse">
                             <thead class="bg-gray-50 dark:bg-slate-800/80 sticky top-0 z-10 text-xs font-bold text-gray-500 uppercase">
-                                <tr><th class="p-3 w-10 text-center"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected" class="rounded"></th><th class="p-3 w-16">操作</th><th class="p-3">文件名</th><th class="p-3 hidden sm:table-cell">艺术家</th><th class="p-3 hidden md:table-cell">标题</th><th class="p-3 hidden lg:table-cell">专辑艺术家</th></tr>
+                                <tr>
+                                    <th class="p-3 w-10 text-center"><input type="checkbox" @change="toggleSelectAllFiles" :checked="isAllFilesSelected" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></th>
+                                    <th class="p-3 w-16 text-center">操作</th>
+                                    <th class="p-3">文件名</th>
+                                    <th class="p-3 hidden sm:table-cell">标题</th>
+                                    <th class="p-3 hidden md:table-cell">艺术家</th>
+                                    <th class="p-3 hidden lg:table-cell">专辑艺术家</th>
+                                    <th class="p-3 hidden xl:table-cell">专辑</th>
+                                </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100 dark:divide-slate-800">
                                 <tr v-for="file in paginatedFiles" :key="file.path" class="hover:bg-indigo-50/40 dark:hover:bg-slate-800/60 transition">
-                                    <td class="p-3 text-center"><input type="checkbox" :value="file.path" v-model="managerSelection" class="rounded"></td>
-                                    <td class="p-3 flex gap-2"><button @click="fixSingleAI(file)" class="text-indigo-600 hover:bg-indigo-100 p-1 rounded"><i class="fa-solid fa-wand-magic-sparkles" :class="{'animate-spin': loadingFiles[file.path]}"></i></button><button @click="deleteOne(file)" class="text-red-500 hover:bg-red-100 p-1 rounded"><i class="fa-solid fa-trash"></i></button></td>
+                                    <td class="p-3 text-center"><input type="checkbox" :value="file.path" v-model="managerSelection" class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"></td>
+                                    <td class="p-3 flex justify-center gap-2"><button @click="fixSingleAI(file)" class="text-indigo-600 hover:bg-indigo-100 p-1 rounded" title="AI 修复"><i class="fa-solid fa-wand-magic-sparkles" :class="{'animate-spin': loadingFiles[file.path]}"></i></button><button @click="deleteOne(file)" class="text-red-500 hover:bg-red-100 p-1 rounded" title="删除"><i class="fa-solid fa-trash"></i></button></td>
                                     <td class="p-3 truncate max-w-[200px]" :title="file.filename">{{ file.filename }}</td>
-                                    <td class="p-3 truncate hidden sm:table-cell">{{ file.artist || '-' }}</td><td class="p-3 truncate hidden md:table-cell">{{ file.title || '-' }}</td><td class="p-3 truncate hidden lg:table-cell">{{ file.album_artist || '-' }}</td>
+                                    <td class="p-3 truncate hidden sm:table-cell" :title="file.title">{{ file.title || '-' }}</td>
+                                    <td class="p-3 truncate hidden md:table-cell" :title="file.artist">{{ file.artist || '-' }}</td>
+                                    <td class="p-3 truncate hidden lg:table-cell" :title="file.album_artist">{{ file.album_artist || '-' }}</td>
+                                    <td class="p-3 truncate hidden xl:table-cell" :title="file.album">{{ file.album || '-' }}</td>
                                 </tr>
                             </tbody>
                         </table>
@@ -123,7 +152,7 @@
                             <input v-model="metaEdit.album_artist" placeholder="专辑艺术家" class="w-full border dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-2 rounded text-sm focus:border-indigo-500 outline-none">
                             <input v-model="metaEdit.title" placeholder="标题" class="w-full border dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-2 rounded text-sm focus:border-indigo-500 outline-none">
                             <input v-model="metaEdit.album" placeholder="专辑" class="w-full border dark:border-slate-700 bg-gray-50 dark:bg-slate-800 p-2 rounded text-sm focus:border-indigo-500 outline-none">
-                            <button @click="applyMetadata" :disabled="managerSelection.length === 0" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-bold transition disabled:opacity-50">应用修改 ({{ managerSelection.length }})</button>
+                            <button @click="applyMetadata" :disabled="managerSelection.length === 0" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white py-2 rounded-lg text-sm font-bold transition disabled:opacity-50 shadow-sm">应用修改 ({{ managerSelection.length }})</button>
                         </div>
                         <div class="space-y-3 mt-4 pt-4 border-t dark:border-slate-800">
                             <label class="text-xs font-bold text-gray-400 uppercase">批量重命名</label>
@@ -193,7 +222,7 @@
 
                 <div class="w-full md:w-80 bg-slate-900 rounded-2xl shadow-xl flex flex-col overflow-hidden shrink-0 border border-slate-800 h-96 md:h-auto">
                     <div class="p-3 bg-slate-950 border-b border-slate-800 flex justify-between items-center">
-                        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider"><i class="fa-solid fa-terminal mr-2"></i> 运行日志</span>
+                        <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-2"><i class="fa-solid fa-terminal"></i> 运行日志</span>
                         <div class="flex gap-2">
                             <button @click="clearLogs" class="text-slate-600 hover:text-red-400 transition" title="清空"><i class="fa-solid fa-trash-can text-xs"></i></button>
                             <button @click="fetchLogs" class="text-slate-500 hover:text-white transition"><i class="fa-solid fa-sync text-xs"></i></button>
@@ -220,7 +249,7 @@
                                     <div class="flex gap-2">
                                         <input list="models" v-model="form.modelName" placeholder="gemini-1.5-flash" class="flex-1 bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl p-2.5 text-sm outline-none focus:border-indigo-500">
                                         <datalist id="models"><option v-for="m in availableModels" :value="m">{{m}}</option></datalist>
-                                        <button @click="fetchModels" class="px-3 rounded-xl bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 transition" :disabled="loadingModels"><i class="fa-solid fa-sync" :class="{'animate-spin': loadingModels}"></i></button>
+                                        <button @click="fetchModels" class="px-3 rounded-xl bg-gray-100 dark:bg-slate-700 hover:bg-gray-200 transition" :disabled="loadingModels" title="刷新模型列表"><i class="fa-solid fa-sync" :class="{'animate-spin': loadingModels}"></i></button>
                                     </div>
                                 </div>
                                 <div><label class="block text-xs font-bold text-gray-400 uppercase mb-2">代理</label><input v-model="form.proxyUrl" placeholder="http://127.0.0.1:7890" class="w-full bg-gray-50 dark:bg-slate-800 border border-gray-200 dark:border-slate-600 rounded-xl p-2.5 text-sm outline-none focus:border-indigo-500"></div>
@@ -367,30 +396,27 @@
                     } catch(e) {}
                 };
 
-                // ✅ 修复：点击放大镜 -> 立即扫描该目录并显示
                 const scanFolder = async (path) => {
                     isScanningPath.value = path;
                     
-                    // 1. 切换目录上下文
+                    // ✅ 修复：点击放大镜，先切目录，再刷新列表，再发起扫描
                     enterDir(path);
-                    
-                    // 2. 发起扫描
+
                     await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: path }) });
+                    // 轮询会更新进度
                 };
 
                 const refreshFiles = async () => {
                     isListLoading.value = true;
                     try {
                         const params = new URLSearchParams({ page: currentPage.value, page_size: pageSize.value, search: fileSearch.value, folder: filterFolder.value });
-                        const res = await fetch(`/api/files/page?${params}`);
+                        const res = await fetch(`/api/files?${params}`); // ✅ 注意：后端没有专门分页接口，这里其实获取了全量，前端分页
                         const data = await res.json();
-                        allFiles.value = data.files;
-                        totalFilesCount.value = data.total;
-                        totalPages.value = data.total_pages;
+                        allFiles.value = data.files; // 后端返回的是全量 files 列表
                     } finally { isListLoading.value = false; }
                 };
 
-                // ✅ 修复：进入文件夹并过滤列表
+                // ✅ 修复：进入目录，并重置页码、刷新列表
                 const enterDir = (path) => {
                     fetchDirs(path);
                     selectFolder(path);
@@ -398,17 +424,32 @@
 
                 const changePageSize = () => {
                     currentPage.value = 1;
-                    refreshFiles();
+                    // 由于是前端分页，不需要重新请求
                 };
 
                 const startScanAll = async () => { results.value = []; await fetch('/api/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ path: null }) }); };
                 const startAnalyze = async () => { await fetch('/api/analyze', { method: 'POST' }); };
 
                 let timeout;
-                const debouncedSearch = () => { clearTimeout(timeout); timeout = setTimeout(() => { fileSearch.value = searchInput.value; currentPage.value = 1; refreshFiles(); }, 300); };
+                const debouncedSearch = () => { clearTimeout(timeout); timeout = setTimeout(() => { fileSearch.value = searchInput.value; currentPage.value = 1; }, 300); };
 
-                const filteredFiles = computed(() => allFiles.value);
-                const paginatedFiles = computed(() => allFiles.value);
+                // ✅ 修复：前端分页逻辑
+                const filteredFiles = computed(() => {
+                    let files = allFiles.value;
+                    if (filterFolder.value) files = files.filter(f => f.path.startsWith(filterFolder.value));
+                    if (fileSearch.value) {
+                        const q = fileSearch.value.toLowerCase();
+                        files = files.filter(f => f.filename.toLowerCase().includes(q) || (f.artist && f.artist.toLowerCase().includes(q)) || (f.title && f.title.toLowerCase().includes(q)));
+                    }
+                    return files;
+                });
+
+                const paginatedFiles = computed(() => {
+                    const start = (currentPage.value - 1) * pageSize.value;
+                    return filteredFiles.value.slice(start, start + pageSize.value);
+                });
+
+                const totalPages = computed(() => Math.ceil(filteredFiles.value.length / pageSize.value) || 1);
                 const isAllFilesSelected = computed(() => paginatedFiles.value.length > 0 && paginatedFiles.value.every(f => managerSelection.value.includes(f.path)));
 
                 const toggleSelectAllFiles = () => {
@@ -421,8 +462,8 @@
                     }
                 };
 
-                const changePage = (delta) => { currentPage.value += delta; refreshFiles(); };
-                const selectFolder = (path) => { currentFolder.value = path; filterFolder.value = path; currentPage.value = 1; refreshFiles(); };
+                const changePage = (delta) => { currentPage.value += delta; };
+                const selectFolder = (path) => { currentFolder.value = path; filterFolder.value = path; currentPage.value = 1; };
 
                 const deleteOne = async (file) => { if(!confirm(`删除 ${file.filename}?`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: [file.path] }) }); refreshFiles(); };
                 const deleteManagerSelection = async () => { if(!confirm(`确认删除 ${managerSelection.value.length} 个文件？`)) return; await fetch('/api/delete', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ paths: managerSelection.value }) }); managerSelection.value = []; refreshFiles(); };
@@ -440,9 +481,11 @@
 
                 const fetchFolderSelector = async () => { try { const res = await fetch('/api/dirs?path='); const data = await res.json(); folderSelectorList.value = data.subdirs; } catch(e){} };
                 const selectTaskFolder = (path) => { taskTargetFolder.value = path; showFolderSelector.value = false; };
+                
                 const saveTasksConfig = async () => { await fetch('/api/tasks/config', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ tasks: taskConfig.value, target_path: taskTargetFolder.value }) }); alert("任务配置已保存"); };
                 const runTask = async (id) => { if(!confirm("立即执行?")) return; await fetch(`/api/tasks/run/${id}`, { method: 'POST' }); fetchLogs(); };
                 
+                // ✅ 修复：清空日志
                 const clearLogs = async () => {
                      await fetch('/api/tasks/logs', { method: 'DELETE' });
                      taskLogs.value = [];
