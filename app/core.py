@@ -5,14 +5,21 @@ import asyncio
 import time
 import sqlite3
 import gc
+import shutil
+import warnings
 from datetime import datetime
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import logging
 from logging.handlers import RotatingFileHandler
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
+
+# Google AI SDK
 import google.generativeai as genai
+
+# Audio processing
 from mutagen.easyid3 import EasyID3
 from mutagen.mp3 import MP3
 from mutagen.flac import FLAC
@@ -20,9 +27,9 @@ from mutagen.id3 import ID3NoHeaderError
 from thefuzz import fuzz
 from PIL import Image
 import io
-import warnings
 
-# 忽略 google.generativeai 的弃用警告
+# 1. ✅ 屏蔽弃用警告 (Fix: Deprecation Warnings)
+warnings.filterwarnings('ignore', category=UserWarning, module='google.generativeai')
 warnings.filterwarnings('ignore', category=FutureWarning, module='google.generativeai')
 
 DATA_DIR = "/data"
@@ -147,10 +154,14 @@ class MetadataDB:
 
 meta_db = MetadataDB()
 
-# ✅ 前置声明任务执行函数
+# 2. ✅ 前置声明任务执行函数 (Fix: Forward Declaration)
+# 这里的定义是为了让 AppState 初始化时不报错，实际逻辑会在文件末尾覆盖
 def run_task_wrapper(task_id):
-    """任务执行包装器 - 前置声明"""
-    pass  # 实际实现在后面
+    """
+    Placeholder for the actual task runner.
+    The real implementation is at the bottom of the file.
+    """
+    pass 
 
 class AppState:
     def __init__(self):
@@ -259,11 +270,11 @@ class AppState:
                 try:
                     parts = conf["cron"].split()
                     if len(parts) == 5:
+                        # 3. ✅ 使用 lambda 闭包修复循环绑定问题 (Fix: Lambda Binding)
                         self.scheduler.add_job(
-                            lambda tid=task_id: run_task_wrapper_impl(tid),  # ✅ 使用 lambda 避免早期绑定
+                            lambda tid=task_id: run_task_wrapper(tid),
                             CronTrigger(minute=parts[0], hour=parts[1], day=parts[2], 
                                       month=parts[3], day_of_week=parts[4]),
-                            args=[],
                             id=task_id,
                             replace_existing=True
                         )
@@ -682,37 +693,6 @@ def task_clean_junk(target_dir):
     
     state.log(f"垃圾清理完成,清理 {cleaned_count} 个文件")
 
-# ✅ 实际任务执行实现
-def run_task_wrapper_impl(task_id):
-    """任务执行包装器的实际实现"""
-    target = state.task_target_path
-    if target and os.path.exists(target):
-        scan_dir = target
-    else:
-        scan_dir = state.music_dir
-    
-    state.log(f"开始执行任务: {task_id} (目标: {scan_dir})")
-    try:
-        if task_id == "dedupe_quality":
-            task_dedupe_quality(scan_dir)
-        elif task_id == "clean_short":
-            task_clean_short(scan_dir)
-        elif task_id == "extract_meta":
-            task_extract_meta(scan_dir)
-        elif task_id == "clean_junk":
-            task_clean_junk(scan_dir)
-        
-        state.tasks_config[task_id]["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        state.save_config()
-        state.log(f"✅ 任务完成: {task_id}")
-    except Exception as e:
-        state.log(f"❌ 任务 {task_id} 失败: {str(e)}")
-
-# ✅ 更新前置声明的函数
-def run_task_wrapper(task_id):
-    """任务执行包装器 - 供外部调用"""
-    run_task_wrapper_impl(task_id)
-
 def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None, album=None):
     updated_count = 0
     for path in file_paths:
@@ -737,6 +717,7 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
                 audio.save()
                 updated_count += 1
                 
+                # Update memory cache
                 for f in state.files:
                     if f['path'] == path:
                         if artist:
@@ -753,4 +734,154 @@ def batch_update_metadata(file_paths, artist=None, album_artist=None, title=None
     
     return updated_count
 
-def batch_
+# 4. ✅ 补全缺失的逻辑 (Fix: Missing Implementations)
+
+def batch_rename_files(paths, pattern):
+    """批量重命名文件"""
+    renamed_count = 0
+    for path in paths:
+        if not os.path.exists(path):
+            continue
+            
+        try:
+            meta = get_metadata(path)
+            # 安全检查：确保有必要的元数据
+            safe_meta = {
+                'artist': meta['artist'] or 'Unknown Artist',
+                'title': meta['title'] or meta['filename'],
+                'album': meta['album'] or 'Unknown Album',
+                'album_artist': meta['album_artist'] or 'Unknown Artist'
+            }
+            
+            # 格式化新文件名
+            new_filename_base = pattern.format(**safe_meta)
+            # 移除非法字符
+            invalid_chars = '<>:"/\\|?*'
+            for char in invalid_chars:
+                new_filename_base = new_filename_base.replace(char, '')
+            
+            ext = os.path.splitext(path)[1]
+            new_filename = f"{new_filename_base}{ext}"
+            dir_name = os.path.dirname(path)
+            new_path = os.path.join(dir_name, new_filename)
+            
+            # 处理文件名冲突
+            counter = 1
+            while os.path.exists(new_path) and new_path != path:
+                new_path = os.path.join(dir_name, f"{new_filename_base} ({counter}){ext}")
+                counter += 1
+            
+            if new_path != path:
+                os.rename(path, new_path)
+                
+                # 更新数据库
+                meta_db.delete_by_path(path)
+                new_meta = get_metadata(new_path)
+                meta_db.save_metadata(new_meta)
+                
+                # 更新内存缓存
+                for f in state.files:
+                    if f['path'] == path:
+                        f.update(new_meta)
+                        break
+                
+                renamed_count += 1
+        except Exception as e:
+            state.log(f"Rename error {path}: {e}")
+            
+    return renamed_count
+
+def delete_file(path):
+    """删除单个文件及其数据库记录"""
+    try:
+        if os.path.exists(path):
+            os.remove(path)
+        
+        meta_db.delete_by_path(path)
+        state.files = [f for f in state.files if f['path'] != path]
+        return True
+    except Exception as e:
+        state.log(f"Delete error {path}: {e}")
+        return False
+
+def fix_single_metadata_ai(path):
+    """使用 AI 修复单个文件的元数据"""
+    if not state.api_key:
+        return {"error": "API Key not configured"}
+    
+    if not os.path.exists(path):
+        return {"error": "File not found"}
+        
+    try:
+        state.apply_proxy()
+        genai.configure(api_key=state.api_key)
+        model = genai.GenerativeModel(state.model_name)
+        
+        filename = os.path.basename(path)
+        current_meta = get_metadata(path)
+        
+        prompt = f"""Analyze this music file filename and suggest correct metadata tags.
+Filename: {filename}
+Current Tags: Artist={current_meta['artist']}, Title={current_meta['title']}, Album={current_meta['album']}
+
+Return ONLY JSON:
+{{
+  "artist": "string",
+  "title": "string",
+  "album": "string (optional)",
+  "album_artist": "string (optional)"
+}}
+"""
+        resp = model.generate_content(
+            prompt, 
+            generation_config={"response_mime_type": "application/json"}
+        )
+        result = json.loads(resp.text)
+        
+        # 应用元数据
+        paths = [path]
+        batch_update_metadata(
+            paths, 
+            artist=result.get("artist"),
+            title=result.get("title"),
+            album=result.get("album"),
+            album_artist=result.get("album_artist")
+        )
+        
+        return {"status": "success", "data": result}
+        
+    except Exception as e:
+        state.log(f"AI Fix Error: {e}")
+        return {"error": str(e)}
+
+# 5. ✅ 真正的任务执行逻辑 (Fix: Actual Task Execution)
+# 这个函数会覆盖之前前置声明的函数
+def run_task_wrapper(task_id):
+    """
+    实际的任务执行器。
+    由 AppState 的调度器通过 lambda 调用。
+    """
+    target = state.task_target_path
+    if target and os.path.exists(target):
+        scan_dir = target
+    else:
+        scan_dir = state.music_dir
+    
+    state.log(f"开始执行任务: {task_id} (目标: {scan_dir})")
+    try:
+        if task_id == "dedupe_quality":
+            task_dedupe_quality(scan_dir)
+        elif task_id == "clean_short":
+            task_clean_short(scan_dir)
+        elif task_id == "extract_meta":
+            task_extract_meta(scan_dir)
+        elif task_id == "clean_junk":
+            task_clean_junk(scan_dir)
+        
+        if task_id in state.tasks_config:
+            state.tasks_config[task_id]["last_run"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            state.save_config()
+            
+        state.log(f"✅ 任务完成: {task_id}")
+    except Exception as e:
+        state.log(f"❌ 任务 {task_id} 失败: {str(e)}")
