@@ -1,6 +1,6 @@
 import os
 import secrets
-import threading  # ✅ 修复: 补全缺失的 threading 模块
+import threading
 import base64
 import binascii
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends, HTTPException, status
@@ -15,13 +15,12 @@ import json
 import asyncio
 from . import core
 
-# 读取环境变量中的账号密码 (默认为 admin/admin)
+# 读取环境变量
 WEB_USER = os.getenv("WEB_USER", "admin")
 WEB_PASSWORD = os.getenv("WEB_PASSWORD", "admin")
 
 security = HTTPBasic()
 
-# ✅ HTTP 接口认证依赖
 def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
     correct_username = secrets.compare_digest(credentials.username, WEB_USER)
     correct_password = secrets.compare_digest(credentials.password, WEB_PASSWORD)
@@ -33,7 +32,6 @@ def get_current_username(credentials: HTTPBasicCredentials = Depends(security)):
         )
     return credentials.username
 
-# ✅ WebSocket 认证辅助函数
 def check_websocket_auth(websocket: WebSocket) -> bool:
     auth_header = websocket.headers.get("authorization")
     if not auth_header or not auth_header.startswith("Basic "):
@@ -50,10 +48,8 @@ def check_websocket_auth(websocket: WebSocket) -> bool:
     except (binascii.Error, ValueError, UnicodeDecodeError):
         return False
 
-# 初始化 App (移除全局依赖，避免误伤 WebSocket)
 app = FastAPI(title="Music Manager", version="2.0")
 
-# CORS 配置
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,6 +63,7 @@ class ConfigRequest(BaseModel):
     api_key: str
     model_name: str
     proxy_url: Optional[str] = ""
+    dedupe_target_path: Optional[str] = "/music"  # ✅ 新增配置项
 
 class DeleteRequest(BaseModel):
     paths: List[str]
@@ -92,7 +89,7 @@ class TaskConfigRequest(BaseModel):
     tasks: Dict[str, dict]
     target_path: str
 
-# WebSocket 连接管理
+# WebSocket
 class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
@@ -107,7 +104,7 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# --- Routes (全部添加认证依赖) ---
+# --- Routes ---
 
 @app.get("/", dependencies=[Depends(get_current_username)])
 async def read_root():
@@ -123,7 +120,6 @@ async def get_files():
 
 @app.post("/api/scan", dependencies=[Depends(get_current_username)])
 async def scan_files(req: ScanRequest):
-    # ✅ 这里的 threading 引用现在是安全的
     t = threading.Thread(target=core.task_scan_and_group, args=(req.path,))
     t.start()
     return {"status": "started"}
@@ -136,6 +132,7 @@ async def get_status():
         "proxy_url": core.state.proxy_url,
         "music_dir": core.state.music_dir,
         "task_target_path": core.state.task_target_path,
+        "dedupe_target_path": core.state.dedupe_target_path, # ✅ 返回去重路径
         "tasks_config": core.state.tasks_config
     }
     return {
@@ -157,6 +154,8 @@ async def save_config(req: ConfigRequest):
     core.state.api_key = req.api_key
     core.state.model_name = req.model_name
     core.state.proxy_url = req.proxy_url
+    if req.dedupe_target_path:
+        core.state.dedupe_target_path = req.dedupe_target_path
     core.state.save_config()
     return {"status": "ok"}
 
@@ -220,15 +219,12 @@ async def delete_files(req: DeleteRequest):
             failed.append(path)
     return {"deleted": deleted, "failed": failed}
 
-# WebSocket 实时推送 (单独的手动认证逻辑)
 @app.websocket("/ws/progress")
 async def websocket_endpoint(websocket: WebSocket):
-    # 1. 验证权限
     if not check_websocket_auth(websocket):
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # 2. 建立连接
     await manager.connect(websocket)
     try:
         while True:
