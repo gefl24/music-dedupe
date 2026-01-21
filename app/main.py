@@ -31,7 +31,6 @@ class SingleFileRequest(BaseModel):
 class ScanRequest(BaseModel):
     path: Optional[str] = None
 
-# ✅ 修改：任务配置包含目标路径
 class TaskConfigRequest(BaseModel):
     tasks: Dict[str, dict]
     target_path: str
@@ -56,7 +55,7 @@ async def get_status():
             "proxy_url": core.state.proxy_url,
             "music_dir": core.state.music_dir,
             "tasks_config": core.state.tasks_config,
-            "task_target_path": core.state.task_target_path # ✅ 返回当前任务路径
+            "task_target_path": core.state.task_target_path
         }
     }
 
@@ -84,7 +83,7 @@ async def get_candidates():
 @app.post("/api/tasks/config")
 async def update_tasks_config(req: TaskConfigRequest):
     core.state.tasks_config.update(req.tasks)
-    core.state.task_target_path = req.target_path # ✅ 更新任务路径
+    core.state.task_target_path = req.target_path
     core.state.save_config()
     return {"status": "ok"}
 
@@ -97,6 +96,12 @@ async def run_task_manually(task_id: str):
 @app.get("/api/tasks/logs")
 async def get_task_logs():
     return {"logs": core.state.task_logs}
+
+# ✅ 新增：清空日志接口
+@app.delete("/api/tasks/logs")
+async def clear_task_logs():
+    core.state.clear_logs()
+    return {"status": "cleared"}
 
 @app.post("/api/update_meta")
 async def update_metadata(req: MetadataRequest):
