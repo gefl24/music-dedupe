@@ -417,7 +417,8 @@ class AudioMetadataExtractor:
             parts = base.split(" - ", 1)
             return parts[1] if artist else parts[1]
         return base
-        # ========== 应用状态管理器 ==========
+
+# ========== 应用状态管理器 ==========
 class AppState:
     """应用状态管理器 - 优化版"""
     
@@ -847,7 +848,9 @@ def task_dedupe_quality(target_dir: str):
     
     state.log(f"音质去重完成,共删除 {deleted_count} 个文件")
     cleanup_memory()
-    def task_clean_short(target_dir: str):
+
+
+def task_clean_short(target_dir: str):
     """清理短音频任务"""
     threshold = state.tasks_config["clean_short"].get("min_duration", 60)
     deleted_count = 0
